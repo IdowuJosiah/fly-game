@@ -185,7 +185,7 @@ function createRoom(ws, pub) {
   const m = ws.meta;
   if (m.room) leaveRoom(ws, true);
   const code = newCode();
-  if (!code) { send(ws, { t: 'error', msg: 'Server is busy. Try again.' }); return null; }
+  if (!code) { send(ws, { t: 'error', msg: 'Server busy' }); return null; }
   const room = new Room(code, pub);
   const token = crypto.randomBytes(8).toString('hex');
   room.players[0] = { ws, token, connected: true, goneAt: 0, rematch: false };
@@ -236,8 +236,8 @@ wss.on('connection', (ws) => {
     if (msg.t === 'join') {
       const code = String(msg.code || '').toUpperCase().slice(0, 4);
       const room = rooms.get(code);
-      if (!room) { send(ws, { t: 'error', msg: 'No room with that code.' }); return; }
-      if (room.players[1] || room.state !== 'lobby') { send(ws, { t: 'error', msg: 'That room is full.' }); return; }
+      if (!room) { send(ws, { t: 'error', msg: 'Room not found' }); return; }
+      if (room.players[1] || room.state !== 'lobby') { send(ws, { t: 'error', msg: 'Room full' }); return; }
       if (waiting === room) waiting = null;
       joinRoom(ws, room);
       return;
@@ -245,7 +245,7 @@ wss.on('connection', (ws) => {
     if (msg.t === 'rejoin') {
       const room = rooms.get(String(msg.code || '').toUpperCase().slice(0, 4));
       const team = room ? room.players.findIndex((p) => p && p.token === msg.token) : -1;
-      if (!room || team < 0) { send(ws, { t: 'error', msg: 'Could not rejoin that match.', fatal: true }); return; }
+      if (!room || team < 0) { send(ws, { t: 'error', msg: 'Match not found', fatal: true }); return; }
       const p = room.players[team];
       if (p.ws !== ws && p.ws.readyState === 1) p.ws.close(1000, 'Replaced');
       p.ws = ws; p.connected = true; p.goneAt = 0;

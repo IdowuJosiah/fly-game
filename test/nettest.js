@@ -26,7 +26,7 @@ function wander(c,until){ // fake paddle input following the ball nearest to own
   const ok=(label,cond)=>console.log((cond?'PASS':'FAIL'),label);
   const a=client('A'), b=client('B'); await a.open; await b.open;
   // errors
-  b.send({t:'join',code:'ZZZZ'}); await sleep(150); ok('unknown code rejected', b.errors[0]==='No room with that code.');
+  b.send({t:'join',code:'ZZZZ'}); await sleep(150); ok('unknown code rejected', b.errors[0]==='Room not found');
   b.send({t:'input',y:'x'}); b.send({t:'garbage'}); b.ws.send('not json'); await sleep(100);
   a.send({t:'create'}); await sleep(150); ok('room created with code', a.room&&/^[A-Z2-9]{4}$/.test(a.room.code)&&a.room.team===0);
   b.send({t:'join',code:a.room.code.toLowerCase()}); await sleep(300);

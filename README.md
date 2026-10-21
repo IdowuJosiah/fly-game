@@ -11,7 +11,7 @@ npm install
 npm start            # http://localhost:3000
 ```
 
-Open two browser tabs and choose **Play online** in both. Either press **Find a random opponent** in each tab to be matched together, or press **Create a room** in one and type its 4-letter code into the other. Open the page on a phone with your computer's local network address to test touch controls.
+Open two browser tabs and choose **Play online** in both. Either press **Random opponent** in each tab to be matched together, or press **Create room** in one and type its 4-letter code into the other. Open the page on a phone with your computer's local network address to test touch controls.
 
 Settings:
 
@@ -36,7 +36,7 @@ test/nettest.js    Scripted two-player test of the server
 - Clients send only where their paddle should be (`{t:"input", y}`), up to about 30 times a second. The server clamps the paddle speed, ignores invalid values, and drops connections that send more than 120 messages a second.
 - Your own paddle is drawn from local input so it never feels delayed. Balls and the other paddle are drawn about 100 ms behind the latest snapshot and interpolated, which hides network jitter.
 - A player who disconnects has 10 seconds to rejoin (the page retries automatically and keeps a session token), which covers a brief network drop. After that the match ends and the player who stayed wins. Choosing **Back to menu** mid-match ends it straight away.
-- **Find a random opponent** pairs players first come, first served: the first searcher waits in a public room and the next searcher joins it. Private rooms made with **Create a room** are never used for random matches.
+- **Random opponent** pairs players first come, first served: the first searcher waits in a public room and the next searcher joins it. Private rooms made with **Create room** are never used for random matches.
 - The round length is sent to clients when they join, so changing it on the server is enough.
 
 ### Messages
@@ -47,7 +47,7 @@ test/nettest.js    Scripted two-player test of the server
 | client | `find` | Join the next random opponent, or wait for one |
 | client | `input {y}` | Paddle target in board cells (0 to 40) |
 | client | `rematch` / `leave` | Ask for another match, or leave |
-| server | `room {code, team, token, players, pub, cfg}` | You are in a room, as team 0 (indigo, left) or 1 (pink, right). `pub` is true for a random match |
+| server | `room {code, team, token, players, pub, cfg}` | You are in a room, as team 0 (black, left) or 1 (white, right). `pub` is true for a random match |
 | server | `snap {...}` | Full state: board bits, balls, paddles, power-ups, timer, events |
 | server | `end {winner, share, tm, stats, forfeit}` | Match over. `forfeit` is the team that dropped out, or -1 |
 | server | `opp {status}` | Opponent `away`, `back`, `rematch`, or `left` |

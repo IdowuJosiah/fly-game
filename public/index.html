@@ -4,97 +4,57 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Territory Paddle</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;700;800&amp;display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg1: #7a0fc4;
-  --bg2: #3a0ca3;
-  --card: #1d0541;
-  --card-text: #fff3fa;
-  --muted: #cdb4ff;
-  --accent: #f25a9d;
-  --accent-ink: #2a0a5e;
-  --cyan: #bff7f1;
-  --line: rgba(255, 255, 255, 0.22);
+  --bg: #000;
+  --fg: #fff;
+  --muted: #8a8a8a;
+  --line: #333;
   box-sizing: border-box;
   padding-top: env(safe-area-inset-top, 0px);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg1: #4f0a86;
-    --bg2: #1d055f;
-    --card: #14032f;
-    --card-text: #fff3fa;
-    --muted: #c3a8ff;
-    --line: rgba(255, 255, 255, 0.18);
-  }
-}
-:root[data-theme="dark"] {
-  --bg1: #4f0a86;
-  --bg2: #1d055f;
-  --card: #14032f;
-  --card-text: #fff3fa;
-  --muted: #c3a8ff;
-  --line: rgba(255, 255, 255, 0.18);
-}
 html, body { height: 100%; margin: 0; }
 body {
-  background: linear-gradient(180deg, var(--bg1), var(--bg2));
-  color: var(--card-text);
-  font-family: "Rubik", system-ui, -apple-system, "Segoe UI", sans-serif;
-  overflow: hidden;
-  -webkit-user-select: none;
-  user-select: none;
+  background: var(--bg); color: var(--fg);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  overflow: hidden; -webkit-user-select: none; user-select: none;
 }
 #stage { position: relative; width: 100%; height: 100%; }
 canvas { display: block; width: 100%; height: 100%; touch-action: none; }
 .overlay {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  padding: 16px; background: rgba(20, 3, 47, 0.55);
+  padding: 16px; background: rgba(0, 0, 0, 0.8);
 }
 .overlay.hidden { display: none; }
-.card {
-  width: min(380px, 100%); max-height: 100%; overflow: auto;
-  background: var(--card); border: 1px solid var(--line); border-radius: 16px;
-  padding: 22px 22px 20px;
-}
-h1 { margin: 0 0 6px; font-size: 28px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.1; }
-.lead { margin: 0 0 14px; color: var(--muted); font-size: 15px; line-height: 1.45; }
-ul { margin: 0 0 16px; padding-left: 18px; font-size: 14px; line-height: 1.5; color: var(--card-text); }
-li + li { margin-top: 4px; }
-.seg { display: flex; gap: 6px; margin: 0 0 14px; }
+.card { width: min(300px, 100%); max-height: 100%; overflow: auto; }
+h1 { margin: 0 0 24px; font-size: 20px; font-weight: 700; text-transform: lowercase; }
+.hint { margin: -16px 0 24px; color: var(--muted); font-size: 12px; }
+.seg { display: flex; margin: 16px 0 8px; border: 1px solid var(--line); background: var(--bg); }
 .seg label { flex: 1; }
 .seg input { position: absolute; opacity: 0; pointer-events: none; }
-.seg span {
-  display: block; text-align: center; padding: 9px 0; border-radius: 10px;
-  border: 1px solid var(--line); font-size: 14px; font-weight: 500; cursor: pointer;
-}
-.seg input:checked + span { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
-.seg input:focus-visible + span { outline: 3px solid var(--cyan); outline-offset: 2px; }
-.seglabel { font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+.seg span { display: block; text-align: center; padding: 8px 0; font-size: 13px; color: var(--muted); cursor: pointer; }
+.seg input:checked + span { background: var(--fg); color: var(--bg); }
+.seg input:focus-visible + span { outline: 2px solid var(--fg); outline-offset: 2px; }
 button {
-  font: inherit; width: 100%; border: 0; border-radius: 12px; padding: 13px 16px;
-  background: var(--accent); color: var(--accent-ink); font-weight: 800; font-size: 16px; cursor: pointer;
+  font: inherit; width: 100%; border: 1px solid var(--fg); border-radius: 0; padding: 12px;
+  background: var(--fg); color: var(--bg); font-size: 14px; cursor: pointer;
 }
 button + button { margin-top: 8px; }
-button.ghost { background: transparent; color: var(--card-text); border: 1px solid var(--line); font-weight: 500; }
-button:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; }
-.stats { margin: 0 0 16px; font-size: 14px; line-height: 1.6; color: var(--muted); }
-.stats strong { color: var(--card-text); font-weight: 700; }
-#resultTitle { font-size: 32px; }
-@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
-
-.codebox { font-size: 44px; font-weight: 800; letter-spacing: 0.18em; text-align: center; margin: 4px 0 10px; color: var(--cyan); }
+button.ghost { background: var(--bg); color: var(--fg); border-color: var(--line); }
+button:disabled { opacity: 0.5; }
+button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.gap { height: 16px; }
+.stats { margin: 0 0 24px; font-size: 13px; color: var(--muted); }
+#resultTitle { font-size: 28px; }
+.codebox { font-size: 40px; font-weight: 700; letter-spacing: 0.2em; margin: 0 0 24px; }
 input[type="text"] {
-  font: inherit; width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 12px; margin: 0 0 8px;
-  background: transparent; color: var(--card-text); border: 1px solid var(--line); font-size: 20px;
+  font: inherit; width: 100%; box-sizing: border-box; padding: 12px; border-radius: 0; margin: 0 0 8px;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line); font-size: 16px;
   letter-spacing: 0.2em; text-align: center; text-transform: uppercase;
 }
-input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offset: 2px; }
-.msg { min-height: 20px; margin: 0 0 10px; font-size: 14px; color: var(--accent); }
+input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
+.msg { min-height: 18px; margin: 8px 0; font-size: 12px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -103,34 +63,27 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
 
   <div id="menu" class="overlay">
     <div class="card">
-      <h1>Territory Paddle</h1>
-      <p class="lead">Each side has one ball that roams its own territory. Flip enemy cells, keep your paddle under the returning ball.</p>
-      <ul>
-        <li>Drag up and down anywhere on the screen to move your paddle. On a keyboard, use the arrow keys or W and S.</li>
-        <li>Own 85% of the board to win, or hold more when 2:00 runs out.</li>
-      </ul>
+      <h1>territory paddle</h1>
+      <p class="hint">drag or ↑ ↓ · own 85%</p>
       <button id="friend">Play online</button>
-      <p class="seglabel" id="lvlLabel" style="margin-top:14px">Or play the bot</p>
-      <div class="seg" role="radiogroup" aria-labelledby="lvlLabel">
-        <label><input type="radio" name="lvl" value="easy"><span>Easy</span></label>
-        <label><input type="radio" name="lvl" value="medium" checked><span>Medium</span></label>
-        <label><input type="radio" name="lvl" value="hard"><span>Hard</span></label>
+      <div class="seg" role="radiogroup" aria-label="Bot level">
+        <label><input type="radio" name="lvl" value="easy"><span>easy</span></label>
+        <label><input type="radio" name="lvl" value="medium" checked><span>medium</span></label>
+        <label><input type="radio" name="lvl" value="hard"><span>hard</span></label>
       </div>
-      <button id="start" class="ghost">Start bot match</button>
-      <button id="watch" class="ghost">Watch two bots play</button>
+      <button id="start" class="ghost">Play bot</button>
+      <button id="watch" class="ghost">Watch</button>
     </div>
   </div>
 
   <div id="online" class="overlay hidden">
     <div class="card">
-      <h1>Play online</h1>
-      <p class="lead">Get matched with anyone else who is searching, or play a friend with a room code.</p>
-      <button id="find">Find a random opponent</button>
-      <p class="seglabel" style="margin-top:16px">Play a friend</p>
-      <button id="create" class="ghost">Create a room</button>
-      <p class="seglabel" style="margin-top:16px" id="joinLabel">Join with a code</p>
-      <input type="text" id="codeIn" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-labelledby="joinLabel" placeholder="ABCD">
-      <button id="join" class="ghost">Join room</button>
+      <h1>online</h1>
+      <button id="find">Random opponent</button>
+      <button id="create" class="ghost">Create room</button>
+      <div class="gap"></div>
+      <input type="text" id="codeIn" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Room code" placeholder="code">
+      <button id="join" class="ghost">Join</button>
       <p class="msg" id="onlineMsg" role="status"></p>
       <button id="onlineBack" class="ghost">Back</button>
     </div>
@@ -138,10 +91,9 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
 
   <div id="lobby" class="overlay hidden">
     <div class="card">
-      <h1 id="lobbyTitle">Waiting for a friend</h1>
+      <h1 id="lobbyTitle">room</h1>
       <div class="codebox" id="roomCode">----</div>
-      <p class="lead" id="lobbyText">Send this code to your friend. The match starts as soon as they join, and you play indigo on the left.</p>
-      <button id="copyCode">Copy code</button>
+      <button id="copyCode">Copy</button>
       <button id="lobbyCancel" class="ghost">Cancel</button>
     </div>
   </div>
@@ -152,7 +104,7 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
       <p class="stats" id="resultStats"></p>
       <p class="msg" id="resultMsg" role="status"></p>
       <button id="again">Rematch</button>
-      <button id="toMenu" class="ghost">Back to menu</button>
+      <button id="toMenu" class="ghost">Menu</button>
     </div>
   </div>
 </div>
@@ -163,7 +115,8 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
   'use strict';
   var Sim = window.TPSim, COLS = Sim.COLS, ROWS = Sim.ROWS, CFG = Sim.CFG, PADW = Sim.PADW, N = Sim.N;
   var STEP = 1 / 60, RENDER_DELAY = 100, SEND_EVERY = 33;
-  var C = { ind: '#1d0541', pink: '#f25a9d', indBall: '#bff7f1', pinkBall: '#5b1fd6', tile: '#ffd23f', ink: '#2a0a5e' };
+  var C = { ind: '#000', pink: '#fff', indBall: '#fff', pinkBall: '#000', tile: '#888', ink: '#000', fg: '#fff', grey: '#888' };
+  var FONT = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
   var $ = function (id) { return document.getElementById(id); };
   var canvas = $('c'), ctx = canvas.getContext('2d');
   var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -263,12 +216,12 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
   $('again').addEventListener('click', function () {
     if (mode === 'online' && net) {
       send({ t: 'rematch' });
-      $('again').disabled = true; $('again').textContent = 'Waiting for your opponent';
+      $('again').disabled = true; $('again').textContent = 'Waiting';
     } else startLocal(watch);
   });
   function joinFromInput() {
     var code = $('codeIn').value.trim().toUpperCase();
-    if (code.length !== 4) { $('onlineMsg').textContent = 'Enter the 4-letter code.'; return; }
+    if (code.length !== 4) { $('onlineMsg').textContent = 'Enter a code'; return; }
     openNet({ t: 'join', code: code });
   }
 
@@ -301,7 +254,7 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
     ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (err) { return; } onNet(m); };
     ws.onclose = function () {
       if (!net || net.closing) return;
-      if (!net.joined) { $('onlineMsg').textContent = 'Could not reach the server.'; net = null; return; }
+      if (!net.joined) { $('onlineMsg').textContent = 'Server unreachable'; net = null; return; }
       if (net.retries < 10) { net.retries++; ui.banner = { text: 'Reconnecting', team: -1, until: performance.now() + 1500 }; net.retryTimer = setTimeout(connect, 1000); }
       else { ui.banner = { text: 'Connection lost', team: -1, until: performance.now() + 4000 }; showEnd({ lost: true }); }
     };
@@ -313,8 +266,8 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
       net.joined = true; net.code = m.code; net.token = m.token; net.team = m.team; myTeam = m.team; viewTeam = m.team;
       if (m.players < 2) {
         hide('online'); $('roomCode').textContent = m.code;
-        $('lobbyTitle').textContent = m.pub ? 'Finding an opponent' : 'Waiting for a friend';
-        $('lobbyText').textContent = m.pub ? 'The match starts as soon as someone else searches. You play indigo on the left.' : 'Send this code to your friend. The match starts as soon as they join, and you play indigo on the left.';
+        $('lobbyTitle').textContent = m.pub ? 'searching' : 'room';
+        $('copyCode').textContent = 'Copy';
         $('roomCode').style.display = $('copyCode').style.display = m.pub ? 'none' : '';
         show('lobby');
       }
@@ -330,9 +283,9 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
     } else if (m.t === 'end') {
       net.endMsg = m; net.over = true; ui.endAt = now + (m.forfeit >= 0 ? 0 : 900);
     } else if (m.t === 'opp') {
-      var txt = { away: 'Opponent disconnected', back: 'Opponent is back', left: 'Opponent left', rematch: 'Opponent wants a rematch' }[m.status];
-      if (m.status === 'left') $('resultMsg').textContent = 'Your opponent left the room.';
-      if (m.status === 'rematch') $('resultMsg').textContent = 'Your opponent wants a rematch.';
+      var txt = { away: 'Opponent away', back: 'Opponent back', left: 'Opponent left', rematch: 'Rematch?' }[m.status];
+      if (m.status === 'left') $('resultMsg').textContent = 'Opponent left';
+      if (m.status === 'rematch') $('resultMsg').textContent = 'Opponent wants a rematch';
       if (txt) ui.banner = { text: txt, team: -1, until: now + 2500 };
     } else if (m.t === 'error') {
       if (m.fatal && net) { closeNet(); toMenu(); }
@@ -420,24 +373,18 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
 
   function showEnd(info) {
     var title, w, share, tm, st;
-    if (info.lost) { title = 'Connection lost'; $('resultStats').textContent = 'The connection to the server dropped and could not be restored.'; $('again').style.display = 'none'; }
+    if (info.lost) { title = 'Connection lost'; $('resultStats').textContent = ''; $('again').style.display = 'none'; }
     else {
       $('again').style.display = '';
       if (mode === 'online') {
         w = net.endMsg.winner; share = net.endMsg.share; tm = net.endMsg.tm; st = net.endMsg.stats; title = w === -1 ? 'Draw' : (w === myTeam ? 'You win' : 'You lose');
         if (net.endMsg.forfeit >= 0) {                 // someone dropped out, so there is nobody to rematch
           $('again').style.display = 'none';
-          $('resultMsg').textContent = net.endMsg.forfeit === myTeam ? 'You were disconnected, so the match ended.' : 'Your opponent disconnected, so the match ended.';
+          $('resultMsg').textContent = net.endMsg.forfeit === myTeam ? 'You disconnected' : 'Opponent disconnected';
         }
       }
-      else { w = sim.winner; share = sim.share; tm = sim.t; st = sim.stats; title = w === -1 ? 'Draw' : (watch ? (w === 0 ? 'Indigo wins' : 'Pink wins') : (w === 0 ? 'You win' : 'Pink wins')); }
-      $('resultStats').innerHTML =
-        'Final territory: <strong>indigo ' + Math.round(share[0] * 100) + '%</strong>, <strong>pink ' + Math.round(share[1] * 100) + '%</strong><br>' +
-        'Match length: <strong>' + fmt(tm) + '</strong><br>' +
-        'Paddle saves: indigo ' + st.saves[0] + ', pink ' + st.saves[1] + '<br>' +
-        'Balls missed: indigo ' + st.misses[0] + ', pink ' + st.misses[1] + '<br>' +
-        'Cells flipped: indigo ' + st.flips[0] + ', pink ' + st.flips[1] + '<br>' +
-        'Power-ups taken: indigo ' + st.tiles[0] + ', pink ' + st.tiles[1];
+      else { w = sim.winner; share = sim.share; tm = sim.t; st = sim.stats; title = w === -1 ? 'Draw' : (watch ? (w === 0 ? 'Black wins' : 'White wins') : (w === 0 ? 'You win' : 'Bot wins')); }
+      $('resultStats').textContent = Math.round(share[0] * 100) + ' / ' + Math.round(share[1] * 100) + ' · ' + fmt(tm);
     }
     $('resultTitle').textContent = title;
     show('result');
@@ -506,14 +453,16 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
         if (!isPink && run >= 0) { ctx.fillRect(bx(run), by(r), bx(c) - bx(run), by(r + 1) - by(r)); run = -1; }
       }
     }
-    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1.2;
+    ctx.strokeStyle = C.fg; ctx.lineWidth = 1;
+    ctx.strokeRect(bx(0) - 0.5, by(0) - 0.5, bx(COLS) - bx(0) + 1, by(ROWS) - by(0) + 1);
+    ctx.strokeStyle = C.grey; ctx.lineWidth = 1.2;
     ctx.beginPath();
     var anyFort = false;
     for (r = 0; r < ROWS; r++) for (c = 0; c < COLS; c++) {
       i = r * COLS + c;
       var age = s.t - s.flipT[i];
       if (age >= 0 && age < 0.3 && s.flipT[i] > -1) {
-        ctx.fillStyle = 'rgba(255,255,255,' + (0.45 * (1 - age / 0.3)).toFixed(3) + ')';
+        ctx.fillStyle = 'rgba(136,136,136,' + (0.6 * (1 - age / 0.3)).toFixed(3) + ')';
         ctx.fillRect(bx(c), by(r), bx(c + 1) - bx(c), by(r + 1) - by(r));
       }
       if (s.fortUntil[i] > s.t) {
@@ -525,7 +474,7 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
     if (anyFort) ctx.stroke(); else ctx.beginPath();
 
     if (s.portals) {
-      var pts = [s.portals.a, s.portals.b], cols = [C.tile, C.indBall];
+      var pts = [s.portals.a, s.portals.b], cols = [C.grey, C.grey];
       for (i = 0; i < 2; i++) {
         var px = ox + pts[i].x * cs, py = oy + pts[i].y * cs, spin = now / 400 * (i ? -1 : 1);
         ctx.strokeStyle = cols[i]; ctx.lineWidth = Math.max(2, cs * 0.18);
@@ -539,9 +488,9 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
       var y0 = oy + (w.row - CFG.tidalHalf) * cs, hh = CFG.tidalHalf * 2 * cs;
       var xa = w.team === 0 ? ox : ox + (COLS - Math.min(w.front, COLS)) * cs;
       var wd = Math.min(w.front, COLS) * cs;
-      ctx.fillStyle = w.team === 0 ? 'rgba(191,247,241,0.28)' : 'rgba(91,31,214,0.30)';
+      ctx.fillStyle = 'rgba(136,136,136,0.3)';
       ctx.fillRect(xa, y0, wd, hh);
-      ctx.fillStyle = w.team === 0 ? C.indBall : C.pinkBall;
+      ctx.fillStyle = C.grey;
       ctx.fillRect(w.team === 0 ? xa + wd - 3 : xa, y0, 3, hh);
     }
 
@@ -564,7 +513,9 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
       var pd = s.pad[i], ph = CFG.paddleH * cs;
       ctx.fillStyle = i === 0 ? C.indBall : C.pinkBall;
       var pxx = i === 0 ? ox : ox + (COLS - PADW) * cs;
-      rrect(pxx, oy + pd.y * cs - ph / 2, PADW * cs, ph, PADW * cs * 0.4); ctx.fill();
+      ctx.fillRect(pxx, oy + pd.y * cs - ph / 2, PADW * cs, ph);
+      ctx.strokeStyle = i === 0 ? C.pinkBall : C.indBall; ctx.lineWidth = 1;
+      ctx.strokeRect(pxx + 0.5, oy + pd.y * cs - ph / 2 + 0.5, PADW * cs - 1, ph - 1);
       if (s.t < s.turretUntil[i] && s.phase !== 'countdown') {
         ctx.fillStyle = C.tile;
         ctx.fillRect(i === 0 ? pxx + PADW * cs : pxx - cs * 0.3, oy + pd.y * cs - cs * 0.15, cs * 0.3, cs * 0.3);
@@ -576,21 +527,21 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
       var ghost = s.ghostUntil[b.team] > s.t;
       if (ghost && b.team !== viewTeam) {
         var pulse = 0.5 + 0.5 * Math.sin(now / 120 + b.id);
-        ctx.strokeStyle = 'rgba(255,255,255,' + (0.18 + 0.2 * pulse).toFixed(2) + ')'; ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(136,136,136,' + (0.3 + 0.3 * pulse).toFixed(2) + ')'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(bxp, byp, rr * (1.3 + 0.6 * pulse), 0, 7); ctx.stroke();
         continue;
       }
       ctx.globalAlpha = ghost ? 0.55 : 1;
       ctx.fillStyle = b.team === 0 ? C.indBall : C.pinkBall;
       ctx.beginPath(); ctx.arc(bxp, byp, rr, 0, 7); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.strokeStyle = b.team === 0 ? C.pinkBall : C.indBall; ctx.lineWidth = 1.5; ctx.stroke();
       ctx.globalAlpha = 1;
     }
 
     ui.fx = ui.fx.filter(function (f) { return now - f.t0 < 450; });
     for (i = 0; i < ui.fx.length; i++) {
       var f = ui.fx[i], k = (now - f.t0) / 450;
-      ctx.strokeStyle = f.kind === 'pickup' ? C.tile : (f.team === 0 ? C.indBall : (f.team === 1 ? C.pinkBall : C.tile));
+      ctx.strokeStyle = C.grey;
       ctx.globalAlpha = 1 - k; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(ox + f.x * cs, oy + f.y * cs, cs * (0.6 + (f.kind === 'miss' ? 3 : (f.kind === 'hit' ? 1.1 : 1.8)) * k), 0, 7); ctx.stroke();
       ctx.globalAlpha = 1;
@@ -600,20 +551,21 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
     // bars
     var bw = COLS * cs - 54, bxs = ox + 54, bh = Math.max(9, cs * 0.5), byo = oy + ROWS * cs + 12;
     var online = mode === 'online', labels;
-    if (online) labels = myTeam === 0 ? ['You', 'Rival'] : ['Rival', 'You'];
-    else if (mode === 'local' && !watch) labels = ['You', 'Bot'];
-    else labels = ['Indigo', 'Pink'];
-    ctx.font = '500 ' + Math.max(11, Math.round(cs * 0.5)) + 'px Rubik, system-ui, sans-serif';
+    if (online) labels = myTeam === 0 ? ['you', 'them'] : ['them', 'you'];
+    else if (mode === 'local' && !watch) labels = ['you', 'bot'];
+    else labels = ['black', 'white'];
+    ctx.font = '500 ' + Math.max(11, Math.round(cs * 0.5)) + 'px ' + FONT;
     ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
     for (i = 0; i < 2; i++) {
       var yy = byo + i * (bh + 8);
-      ctx.fillStyle = 'rgba(255,255,255,0.14)'; rrect(bxs, yy, bw, bh, bh / 2); ctx.fill();
-      ctx.fillStyle = i === 0 ? C.indBall : C.pink;
-      rrect(bxs, yy, Math.max(bh, bw * s.share[i]), bh, bh / 2); ctx.fill();
-      ctx.fillStyle = '#fff3fa';
+      ctx.strokeStyle = '#333'; ctx.lineWidth = 1; ctx.strokeRect(bxs + 0.5, yy + 0.5, bw - 1, bh - 1);
+      ctx.fillStyle = C.fg; ctx.strokeStyle = C.fg;
+      if (i === 1) ctx.fillRect(bxs, yy, bw * s.share[i], bh);
+      else ctx.strokeRect(bxs + 0.5, yy + 0.5, Math.max(1, bw * s.share[i] - 1), bh - 1);
+      ctx.fillStyle = C.grey;
       ctx.fillText(labels[i], ox, yy + bh / 2 + 1);
     }
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillStyle = C.grey;
     ctx.fillRect(bxs + bw * CFG.winShare - 1, byo - 4, 2, bh * 2 + 16);
 
     // timer or banner
@@ -621,30 +573,27 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
     var banner = ui.banner && now < ui.banner.until ? ui.banner : null;
     ctx.textAlign = 'center';
     if (banner) {
-      ctx.fillStyle = banner.team === 1 ? C.pink : (banner.team === 0 ? C.ind : '#fff3fa');
-      rrect(ox, topY, COLS * cs, topH, 8); ctx.fill();
-      if (banner.team === 0) { ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.stroke(); }
-      ctx.fillStyle = banner.team === 0 ? '#fff3fa' : C.ink;
-      ctx.font = '700 ' + Math.max(12, Math.round(cs * 0.62)) + 'px Rubik, system-ui, sans-serif';
+      ctx.fillStyle = C.fg;
+      ctx.font = '700 ' + Math.max(12, Math.round(cs * 0.62)) + 'px ' + FONT;
       ctx.fillText(banner.text, ox + COLS * cs / 2, topY + topH / 2 + 1);
     } else {
       var rem = s.phase === 'sudden' ? s.suddenEnd - s.t : CFG.roundTime - s.t;
       if (s.phase === 'countdown') rem = CFG.roundTime;
-      ctx.fillStyle = '#fff3fa';
-      ctx.font = '800 ' + Math.max(16, Math.round(cs * 0.95)) + 'px Rubik, system-ui, sans-serif';
+      ctx.fillStyle = C.fg;
+      ctx.font = '700 ' + Math.max(16, Math.round(cs * 0.95)) + 'px ' + FONT;
       ctx.fillText((s.phase === 'sudden' ? 'Sudden death ' : '') + fmt(rem), ox + COLS * cs / 2, topY + topH / 2 + 1);
     }
 
     if (s.phase === 'countdown') {
       var n = Math.ceil(s.cd), frac = s.cd - Math.floor(s.cd);
-      ctx.fillStyle = 'rgba(255,243,250,' + (0.55 + 0.45 * frac).toFixed(2) + ')';
-      ctx.font = '800 ' + Math.round(cs * 6) + 'px Rubik, system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,' + (0.55 + 0.45 * frac).toFixed(2) + ')';
+      ctx.font = '700 ' + Math.round(cs * 6) + 'px ' + FONT;
       ctx.textBaseline = 'middle';
       ctx.fillText(String(Math.max(1, n)), ox + COLS * cs / 2, oy + ROWS * cs / 2);
       if (online) {
-        ctx.font = '700 ' + Math.round(cs * 0.8) + 'px Rubik, system-ui, sans-serif';
-        ctx.fillStyle = '#fff3fa';
-        ctx.fillText(myTeam === 0 ? 'You are indigo, on the left' : 'You are pink, on the right', ox + COLS * cs / 2, oy + ROWS * cs / 2 + cs * 5);
+        ctx.font = '700 ' + Math.round(cs * 0.8) + 'px ' + FONT;
+        ctx.fillStyle = C.grey;
+        ctx.fillText(myTeam === 0 ? 'you: black, left' : 'you: white, right', ox + COLS * cs / 2, oy + ROWS * cs / 2 + cs * 5);
       }
     }
   }
