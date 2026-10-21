@@ -1,0 +1,13 @@
+{
+  "name": "territory-paddle",
+  "version": "0.3.0",
+  "description": "Two-player territory paddle game with an authoritative Node server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": { "ws": "^8.18.0" },
+  "license": "UNLICENSED",
+  "private": true
+}
