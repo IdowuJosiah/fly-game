@@ -61,6 +61,18 @@ function wander(c,until){ // fake paddle input following the ball nearest to own
   ok('forfeited player sees the result', !!b3.ended && b3.ended.forfeit===1); b3.ws.close();
   // bad rejoin token
   const c3=client('C'); await c3.open; c3.send({t:'rejoin',code,token:'nope'}); await sleep(200); ok('bad token refused', c3.errors.length===1);
+  // random matchmaking
+  const p1=client('P1'), p2=client('P2'), p3=client('P3'), p4=client('P4'); await Promise.all([p1.open,p2.open,p3.open,p4.open]);
+  p4.send({t:'create'}); await sleep(150);                       // a private room must not be picked
+  p1.send({t:'find'}); await sleep(150);
+  ok('searcher waits in a public room', p1.room&&p1.room.pub===true&&p1.room.players===1);
+  p2.send({t:'find'}); await sleep(400);
+  ok('second searcher is paired with the first', p2.room&&p2.room.code===p1.room.code&&p2.room.team===1&&p1.restarts===1);
+  ok('private rooms are left alone', p4.restarts===0);
+  p3.send({t:'find'}); await sleep(150); const firstCode=p3.room&&p3.room.code; p3.send({t:'leave'}); await sleep(150);
+  const p5=client('P5'); await p5.open; p5.send({t:'find'}); await sleep(150);
+  ok('cancelled search is not matched', p5.room&&p5.room.players===1&&p5.room.code!==firstCode&&p3.restarts===0);
+  for(const x of [p1,p2,p3,p4,p5]) x.ws.close();
   clearInterval(ia); a.ws.close(); c3.ws.close(); await sleep(200);
   process.exit(0);
 })();

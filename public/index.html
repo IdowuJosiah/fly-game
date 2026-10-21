@@ -109,7 +109,7 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
         <li>Drag up and down anywhere on the screen to move your paddle. On a keyboard, use the arrow keys or W and S.</li>
         <li>Own 85% of the board to win, or hold more when 2:00 runs out.</li>
       </ul>
-      <button id="friend">Play a friend online</button>
+      <button id="friend">Play online</button>
       <p class="seglabel" id="lvlLabel" style="margin-top:14px">Or play the bot</p>
       <div class="seg" role="radiogroup" aria-labelledby="lvlLabel">
         <label><input type="radio" name="lvl" value="easy"><span>Easy</span></label>
@@ -123,9 +123,11 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
 
   <div id="online" class="overlay hidden">
     <div class="card">
-      <h1>Play a friend</h1>
-      <p class="lead">Create a room and send the code, or enter a code you were given.</p>
-      <button id="create">Create a room</button>
+      <h1>Play online</h1>
+      <p class="lead">Get matched with anyone else who is searching, or play a friend with a room code.</p>
+      <button id="find">Find a random opponent</button>
+      <p class="seglabel" style="margin-top:16px">Play a friend</p>
+      <button id="create" class="ghost">Create a room</button>
       <p class="seglabel" style="margin-top:16px" id="joinLabel">Join with a code</p>
       <input type="text" id="codeIn" maxlength="4" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-labelledby="joinLabel" placeholder="ABCD">
       <button id="join" class="ghost">Join room</button>
@@ -136,9 +138,9 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
 
   <div id="lobby" class="overlay hidden">
     <div class="card">
-      <h1>Waiting for a friend</h1>
+      <h1 id="lobbyTitle">Waiting for a friend</h1>
       <div class="codebox" id="roomCode">----</div>
-      <p class="lead">Send this code to your friend. The match starts as soon as they join, and you play indigo on the left.</p>
+      <p class="lead" id="lobbyText">Send this code to your friend. The match starts as soon as they join, and you play indigo on the left.</p>
       <button id="copyCode">Copy code</button>
       <button id="lobbyCancel" class="ghost">Cancel</button>
     </div>
@@ -248,6 +250,7 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
   $('watch').addEventListener('click', function () { startLocal(true); });
   $('friend').addEventListener('click', function () { hide('menu'); $('onlineMsg').textContent = ''; show('online'); });
   $('onlineBack').addEventListener('click', function () { hide('online'); show('menu'); });
+  $('find').addEventListener('click', function () { openNet({ t: 'find' }); });
   $('create').addEventListener('click', function () { openNet({ t: 'create' }); });
   $('join').addEventListener('click', joinFromInput);
   $('codeIn').addEventListener('keydown', function (e) { if (e.key === 'Enter') joinFromInput(); });
@@ -260,7 +263,7 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
   $('again').addEventListener('click', function () {
     if (mode === 'online' && net) {
       send({ t: 'rematch' });
-      $('again').disabled = true; $('again').textContent = 'Waiting for your friend';
+      $('again').disabled = true; $('again').textContent = 'Waiting for your opponent';
     } else startLocal(watch);
   });
   function joinFromInput() {
@@ -308,7 +311,13 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
     if (m.t === 'room') {
       if (m.cfg && m.cfg.roundTime) CFG.roundTime = m.cfg.roundTime;
       net.joined = true; net.code = m.code; net.token = m.token; net.team = m.team; myTeam = m.team; viewTeam = m.team;
-      if (m.players < 2) { hide('online'); $('roomCode').textContent = m.code; show('lobby'); }
+      if (m.players < 2) {
+        hide('online'); $('roomCode').textContent = m.code;
+        $('lobbyTitle').textContent = m.pub ? 'Finding an opponent' : 'Waiting for a friend';
+        $('lobbyText').textContent = m.pub ? 'The match starts as soon as someone else searches. You play indigo on the left.' : 'Send this code to your friend. The match starts as soon as they join, and you play indigo on the left.';
+        $('roomCode').style.display = $('copyCode').style.display = m.pub ? 'none' : '';
+        show('lobby');
+      }
     } else if (m.t === 'snap') {
       if (mode !== 'online') { mode = 'online'; watch = false; hideAllOverlays(); localTarget = ROWS / 2; localPadY = ROWS / 2; view = newView(); }
       net.snaps.push({ rt: now, d: m });
@@ -321,9 +330,9 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
     } else if (m.t === 'end') {
       net.endMsg = m; net.over = true; ui.endAt = now + (m.forfeit >= 0 ? 0 : 900);
     } else if (m.t === 'opp') {
-      var txt = { away: 'Friend disconnected', back: 'Friend is back', left: 'Friend left', rematch: 'Friend wants a rematch' }[m.status];
-      if (m.status === 'left') $('resultMsg').textContent = 'Your friend left the room.';
-      if (m.status === 'rematch') $('resultMsg').textContent = 'Your friend wants a rematch.';
+      var txt = { away: 'Opponent disconnected', back: 'Opponent is back', left: 'Opponent left', rematch: 'Opponent wants a rematch' }[m.status];
+      if (m.status === 'left') $('resultMsg').textContent = 'Your opponent left the room.';
+      if (m.status === 'rematch') $('resultMsg').textContent = 'Your opponent wants a rematch.';
       if (txt) ui.banner = { text: txt, team: -1, until: now + 2500 };
     } else if (m.t === 'error') {
       if (m.fatal && net) { closeNet(); toMenu(); }
@@ -418,7 +427,7 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
         w = net.endMsg.winner; share = net.endMsg.share; tm = net.endMsg.tm; st = net.endMsg.stats; title = w === -1 ? 'Draw' : (w === myTeam ? 'You win' : 'You lose');
         if (net.endMsg.forfeit >= 0) {                 // someone dropped out, so there is nobody to rematch
           $('again').style.display = 'none';
-          $('resultMsg').textContent = net.endMsg.forfeit === myTeam ? 'You were disconnected, so the match ended.' : 'Your friend disconnected, so the match ended.';
+          $('resultMsg').textContent = net.endMsg.forfeit === myTeam ? 'You were disconnected, so the match ended.' : 'Your opponent disconnected, so the match ended.';
         }
       }
       else { w = sim.winner; share = sim.share; tm = sim.t; st = sim.stats; title = w === -1 ? 'Draw' : (watch ? (w === 0 ? 'Indigo wins' : 'Pink wins') : (w === 0 ? 'You win' : 'Pink wins')); }

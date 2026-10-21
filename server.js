@@ -44,6 +44,7 @@ const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 2048 });
 
 /* ---------- helpers ---------- */
 const rooms = new Map();
+let waiting = null;                  // public room with one player looking for a random opponent
 const r2 = (v) => Math.round(v * 100) / 100;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 function send(ws, obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
@@ -81,8 +82,9 @@ function snapshot(s, events) {
 
 /* ---------- rooms ---------- */
 class Room {
-  constructor(code) {
+  constructor(code, pub) {
     this.code = code;
+    this.pub = !!pub;                // created by "find an opponent" rather than shared by code
     this.players = [null, null];     // { ws, token, connected, goneAt, rematch }
     this.sim = null;
     this.timer = null;
@@ -144,7 +146,7 @@ class Room {
       this.broadcast(this.endMsg());
     }
   }
-  destroy() { this.stopTimer(); rooms.delete(this.code); }
+  destroy() { this.stopTimer(); rooms.delete(this.code); if (waiting === this) waiting = null; }
 }
 
 /* clean up rooms nobody is in */
@@ -179,6 +181,30 @@ function leaveRoom(ws, voluntary) {
   if (other) send(other.ws, { t: 'opp', status: room.state === 'ended' ? 'left' : 'away' });
 }
 
+function createRoom(ws, pub) {
+  const m = ws.meta;
+  if (m.room) leaveRoom(ws, true);
+  const code = newCode();
+  if (!code) { send(ws, { t: 'error', msg: 'Server is busy. Try again.' }); return null; }
+  const room = new Room(code, pub);
+  const token = crypto.randomBytes(8).toString('hex');
+  room.players[0] = { ws, token, connected: true, goneAt: 0, rematch: false };
+  rooms.set(code, room);
+  m.room = room; m.team = 0;
+  send(ws, { t: 'room', code, team: 0, token, players: 1, pub: room.pub, cfg: { roundTime: CFG.roundTime } });
+  return room;
+}
+function joinRoom(ws, room) {
+  const m = ws.meta;
+  if (m.room) leaveRoom(ws, true);
+  const token = crypto.randomBytes(8).toString('hex');
+  room.players[1] = { ws, token, connected: true, goneAt: 0, rematch: false };
+  m.room = room; m.team = 1;
+  send(ws, { t: 'room', code: room.code, team: 1, token, players: 2, pub: room.pub, cfg: { roundTime: CFG.roundTime } });
+  room.broadcast({ t: 'lobby', players: 2 });
+  room.start();
+}
+
 wss.on('connection', (ws) => {
   ws.meta = { room: null, team: -1, n: 0, windowStart: Date.now() };
   ws.isAlive = true;
@@ -199,16 +225,12 @@ wss.on('connection', (ws) => {
       room.sim.pad[m.team].target = clamp(msg.y, 0, ROWS);
       return;
     }
-    if (msg.t === 'create') {
-      if (m.room) leaveRoom(ws, true);
-      const code = newCode();
-      if (!code) { send(ws, { t: 'error', msg: 'Server is busy. Try again.' }); return; }
-      const room = new Room(code);
-      const token = crypto.randomBytes(8).toString('hex');
-      room.players[0] = { ws, token, connected: true, goneAt: 0, rematch: false };
-      rooms.set(code, room);
-      m.room = room; m.team = 0;
-      send(ws, { t: 'room', code, team: 0, token, players: 1, cfg: { roundTime: CFG.roundTime } });
+    if (msg.t === 'create') { createRoom(ws, false); return; }
+    if (msg.t === 'find') {
+      const host = waiting && waiting.state === 'lobby' && !waiting.players[1] && waiting.players[0];
+      if (host && host.connected && host.ws !== ws) { const room = waiting; waiting = null; joinRoom(ws, room); return; }
+      const room = createRoom(ws, true);
+      if (room) waiting = room;
       return;
     }
     if (msg.t === 'join') {
@@ -216,13 +238,8 @@ wss.on('connection', (ws) => {
       const room = rooms.get(code);
       if (!room) { send(ws, { t: 'error', msg: 'No room with that code.' }); return; }
       if (room.players[1] || room.state !== 'lobby') { send(ws, { t: 'error', msg: 'That room is full.' }); return; }
-      if (m.room) leaveRoom(ws, true);
-      const token = crypto.randomBytes(8).toString('hex');
-      room.players[1] = { ws, token, connected: true, goneAt: 0, rematch: false };
-      m.room = room; m.team = 1;
-      send(ws, { t: 'room', code, team: 1, token, players: 2, cfg: { roundTime: CFG.roundTime } });
-      room.broadcast({ t: 'lobby', players: 2 });
-      room.start();
+      if (waiting === room) waiting = null;
+      joinRoom(ws, room);
       return;
     }
     if (msg.t === 'rejoin') {
@@ -233,7 +250,7 @@ wss.on('connection', (ws) => {
       if (p.ws !== ws && p.ws.readyState === 1) p.ws.close(1000, 'Replaced');
       p.ws = ws; p.connected = true; p.goneAt = 0;
       m.room = room; m.team = team;
-      send(ws, { t: 'room', code: room.code, team, token: p.token, players: room.count(), cfg: { roundTime: CFG.roundTime } });
+      send(ws, { t: 'room', code: room.code, team, token: p.token, players: room.count(), pub: room.pub, cfg: { roundTime: CFG.roundTime } });
       const other = room.players[1 - team];
       if (other) send(other.ws, { t: 'opp', status: 'back' });
       if (room.state === 'ended') send(ws, room.endMsg());
