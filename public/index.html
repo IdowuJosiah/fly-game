@@ -442,6 +442,9 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
 
     ctx.save();
     if (ui.shake > 0) { var m = ui.shake * 14; ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m); }
+    // mirror the board so the player's own side is always on the right
+    var flip = (mode === 'online' && myTeam === 0) || (mode === 'local' && !watch);
+    if (flip) { ctx.translate(2 * ox + COLS * cs, 0); ctx.scale(-1, 1); }
 
     ctx.fillStyle = C.ind; ctx.fillRect(bx(0), by(0), bx(COLS) - bx(0), by(ROWS) - by(0));
     ctx.fillStyle = C.pink;
@@ -593,7 +596,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
       if (online) {
         ctx.font = '700 ' + Math.round(cs * 0.8) + 'px ' + FONT;
         ctx.fillStyle = C.grey;
-        ctx.fillText(myTeam === 0 ? 'you: black, left' : 'you: white, right', ox + COLS * cs / 2, oy + ROWS * cs / 2 + cs * 5);
+        ctx.fillText(myTeam === 0 ? 'you: black' : 'you: white', ox + COLS * cs / 2, oy + ROWS * cs / 2 + cs * 5);
       }
     }
   }
