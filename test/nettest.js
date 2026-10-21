@@ -53,9 +53,12 @@ function wander(c,until){ // fake paddle input following the ball nearest to own
   const b2=client('B2'); await b2.open; b2.send({t:'rejoin',code,token:tokenB}); await sleep(400);
   ok('B rejoined same team', b2.room&&b2.room.team===1); ok('A told B is back', a.opp.includes('back'));
   const ib2=wander(b2); await sleep(500); ok('rejoined player gets snapshots', b2.snaps>5);
-  // disconnect again and let the grace period lapse => bot takes over
-  clearInterval(ib2); b2.ws.terminate(); await sleep(2200);
-  ok('bot takes over after grace', a.opp.includes('bot'));
+  // disconnect again and let the grace period lapse => B forfeits
+  a.ended=null; clearInterval(ib2); b2.ws.terminate(); await sleep(2200);
+  ok('match ends when a player stays gone', !!a.ended && a.ended.forfeit===1 && a.ended.winner===0);
+  // rejoining after the forfeit shows the result instead of a live match
+  const b3=client('B3'); await b3.open; b3.send({t:'rejoin',code,token:tokenB}); await sleep(400);
+  ok('forfeited player sees the result', !!b3.ended && b3.ended.forfeit===1); b3.ws.close();
   // bad rejoin token
   const c3=client('C'); await c3.open; c3.send({t:'rejoin',code,token:'nope'}); await sleep(200); ok('bad token refused', c3.errors.length===1);
   clearInterval(ia); a.ws.close(); c3.ws.close(); await sleep(200);

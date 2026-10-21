@@ -319,9 +319,9 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
       hide('result'); ui.endAt = 0; ui.banner = null;
       $('again').disabled = false; $('again').textContent = 'Rematch'; $('resultMsg').textContent = '';
     } else if (m.t === 'end') {
-      net.endMsg = m; net.over = true; ui.endAt = now + 900;
+      net.endMsg = m; net.over = true; ui.endAt = now + (m.forfeit >= 0 ? 0 : 900);
     } else if (m.t === 'opp') {
-      var txt = { away: 'Friend disconnected', back: 'Friend is back', bot: 'A bot took their place', left: 'Friend left', rematch: 'Friend wants a rematch' }[m.status];
+      var txt = { away: 'Friend disconnected', back: 'Friend is back', left: 'Friend left', rematch: 'Friend wants a rematch' }[m.status];
       if (m.status === 'left') $('resultMsg').textContent = 'Your friend left the room.';
       if (m.status === 'rematch') $('resultMsg').textContent = 'Your friend wants a rematch.';
       if (txt) ui.banner = { text: txt, team: -1, until: now + 2500 };
@@ -414,7 +414,13 @@ input[type="text"]:focus-visible { outline: 3px solid var(--cyan); outline-offse
     if (info.lost) { title = 'Connection lost'; $('resultStats').textContent = 'The connection to the server dropped and could not be restored.'; $('again').style.display = 'none'; }
     else {
       $('again').style.display = '';
-      if (mode === 'online') { w = net.endMsg.winner; share = net.endMsg.share; tm = net.endMsg.tm; st = net.endMsg.stats; title = w === -1 ? 'Draw' : (w === myTeam ? 'You win' : 'You lose'); }
+      if (mode === 'online') {
+        w = net.endMsg.winner; share = net.endMsg.share; tm = net.endMsg.tm; st = net.endMsg.stats; title = w === -1 ? 'Draw' : (w === myTeam ? 'You win' : 'You lose');
+        if (net.endMsg.forfeit >= 0) {                 // someone dropped out, so there is nobody to rematch
+          $('again').style.display = 'none';
+          $('resultMsg').textContent = net.endMsg.forfeit === myTeam ? 'You were disconnected, so the match ended.' : 'Your friend disconnected, so the match ended.';
+        }
+      }
       else { w = sim.winner; share = sim.share; tm = sim.t; st = sim.stats; title = w === -1 ? 'Draw' : (watch ? (w === 0 ? 'Indigo wins' : 'Pink wins') : (w === 0 ? 'You win' : 'Pink wins')); }
       $('resultStats').innerHTML =
         'Final territory: <strong>indigo ' + Math.round(share[0] * 100) + '%</strong>, <strong>pink ' + Math.round(share[1] * 100) + '%</strong><br>' +

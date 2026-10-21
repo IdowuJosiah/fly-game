@@ -18,7 +18,7 @@ Settings:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | 3000 | Port to listen on (hosting platforms set this for you) |
-| `GRACE_MS` | 10000 | How long a dropped player has to rejoin before a bot takes their paddle |
+| `GRACE_MS` | 10000 | How long a dropped player has to rejoin before they forfeit and the match ends |
 | `ROUND_TIME` | 120 | Round length in seconds, handy for quick tests |
 
 ## Files
@@ -35,7 +35,7 @@ test/nettest.js    Scripted two-player test of the server
 - The server steps the simulation at 60 Hz and sends a snapshot to both players 20 times a second (about 580 bytes each, roughly 12 KB/s per player).
 - Clients send only where their paddle should be (`{t:"input", y}`), up to about 30 times a second. The server clamps the paddle speed, ignores invalid values, and drops connections that send more than 120 messages a second.
 - Your own paddle is drawn from local input so it never feels delayed. Balls and the other paddle are drawn about 100 ms behind the latest snapshot and interpolated, which hides network jitter.
-- A player who disconnects has 10 seconds to rejoin (the page retries automatically and keeps a session token). After that a medium bot takes the paddle, and rejoining hands it back.
+- A player who disconnects has 10 seconds to rejoin (the page retries automatically and keeps a session token), which covers a brief network drop. After that the match ends and the player who stayed wins. Choosing **Back to menu** mid-match ends it straight away.
 - The round length is sent to clients when they join, so changing it on the server is enough.
 
 ### Messages
@@ -47,8 +47,8 @@ test/nettest.js    Scripted two-player test of the server
 | client | `rematch` / `leave` | Ask for another match, or leave |
 | server | `room {code, team, token, players, cfg}` | You are in a room, as team 0 (indigo, left) or 1 (pink, right) |
 | server | `snap {...}` | Full state: board bits, balls, paddles, power-ups, timer, events |
-| server | `end {winner, share, tm, stats}` | Match over |
-| server | `opp {status}` | Opponent `away`, `back`, `bot`, `rematch`, or `left` |
+| server | `end {winner, share, tm, stats, forfeit}` | Match over. `forfeit` is the team that dropped out, or -1 |
+| server | `opp {status}` | Opponent `away`, `back`, `rematch`, or `left` |
 | server | `restart` / `error {msg}` | New match starting, or something went wrong |
 
 ## Deploying

@@ -16,7 +16,7 @@ const Sim = require('./shared/sim.js').TPSim;
 const { CFG, COLS, ROWS, N } = Sim;
 if (process.env.ROUND_TIME) CFG.roundTime = Number(process.env.ROUND_TIME);   // for testing only
 const PORT = Number(process.env.PORT) || 3000;
-const GRACE_MS = Number(process.env.GRACE_MS) || 10000;     // time a dropped player has to rejoin
+const GRACE_MS = Number(process.env.GRACE_MS) || 10000;     // time a dropped player has to rejoin before they forfeit
 const EMPTY_ROOM_MS = 30000;                                // delete a room nobody has joined for this long
 const STEP = 1 / 60;
 const SNAP_EVERY = 0.05;                                    // 20 snapshots per second
@@ -88,6 +88,7 @@ class Room {
     this.timer = null;
     this.state = 'lobby';            // lobby | playing | ended
     this.acc = 0; this.snapAcc = 0; this.last = 0; this.evq = [];
+    this.forfeit = -1;               // team that dropped out, or -1
     this.createdAt = Date.now();
   }
   count() { return this.players.filter(Boolean).length; }
@@ -97,28 +98,34 @@ class Room {
     this.stopTimer();
     this.sim = Sim.createSim(crypto.randomInt(0, 2 ** 32), [null, null]);
     this.state = 'playing';
-    this.acc = 0; this.snapAcc = 0; this.evq = []; this.last = Date.now();
+    this.acc = 0; this.snapAcc = 0; this.evq = []; this.last = Date.now(); this.forfeit = -1;
     for (const p of this.players) if (p) p.rematch = false;
     this.broadcast({ t: 'restart' });
     this.timer = setInterval(() => this.tick(), 16);
   }
   stopTimer() { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
-  checkBots(now) {
+  checkForfeit(now) {                // a player gone longer than the grace period loses the match
+    if (this.sim.over) return;
     for (let k = 0; k < 2; k++) {
       const p = this.players[k];
-      if (p && !p.connected && !this.sim.bots[k] && now - p.goneAt > GRACE_MS) {
-        this.sim.bots[k] = { level: 'medium', timer: 0, target: this.sim.pad[k].y, aimOff: 0, lastId: -1 };
-        const other = this.players[1 - k];
-        if (other) send(other.ws, { t: 'opp', status: 'bot' });
+      if (p && !p.connected && now - p.goneAt > GRACE_MS) {
+        const s = this.sim;
+        s.over = true; s.phase = 'over'; s.winner = 1 - k;
+        this.forfeit = k;
+        return;
       }
     }
+  }
+  endMsg() {
+    const s = this.sim;
+    return { t: 'end', winner: s.winner, share: s.share.map(r2), tm: r2(s.t), stats: s.stats, forfeit: this.forfeit };
   }
   tick() {
     const s = this.sim, now = Date.now();
     let dt = (now - this.last) / 1000; this.last = now;
     if (dt > 0.25) dt = 0.25;
     this.acc += dt;
-    this.checkBots(now);
+    this.checkForfeit(now);
     while (this.acc >= STEP && !s.over) {
       Sim.step(s, STEP);
       this.acc -= STEP;
@@ -134,7 +141,7 @@ class Room {
     if (s.over) {
       this.stopTimer();
       this.state = 'ended';
-      this.broadcast({ t: 'end', winner: s.winner, share: s.share.map(r2), tm: r2(s.t), stats: s.stats });
+      this.broadcast(this.endMsg());
     }
   }
   destroy() { this.stopTimer(); rooms.delete(this.code); }
@@ -189,7 +196,6 @@ wss.on('connection', (ws) => {
       const room = m.room;
       if (!room || !room.sim || room.state !== 'playing') return;
       if (typeof msg.y !== 'number' || !isFinite(msg.y)) return;
-      if (room.sim.bots[m.team]) return;
       room.sim.pad[m.team].target = clamp(msg.y, 0, ROWS);
       return;
     }
@@ -227,11 +233,10 @@ wss.on('connection', (ws) => {
       if (p.ws !== ws && p.ws.readyState === 1) p.ws.close(1000, 'Replaced');
       p.ws = ws; p.connected = true; p.goneAt = 0;
       m.room = room; m.team = team;
-      if (room.sim && room.sim.bots[team]) room.sim.bots[team] = null;   // hand the paddle back
       send(ws, { t: 'room', code: room.code, team, token: p.token, players: room.count(), cfg: { roundTime: CFG.roundTime } });
       const other = room.players[1 - team];
       if (other) send(other.ws, { t: 'opp', status: 'back' });
-      if (room.state === 'ended') send(ws, { t: 'end', winner: room.sim.winner, share: room.sim.share.map(r2), tm: r2(room.sim.t), stats: room.sim.stats });
+      if (room.state === 'ended') send(ws, room.endMsg());
       return;
     }
     if (msg.t === 'rematch') {
