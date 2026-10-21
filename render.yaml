@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: territory-paddle
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    numInstances: 1

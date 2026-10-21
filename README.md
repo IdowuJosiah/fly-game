@@ -53,6 +53,23 @@ test/nettest.js    Scripted two-player test of the server
 
 ## Deploying
 
+### Render (free, no card needed)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/IdowuJosiah/fly-game)
+
+Click the button, sign in with GitHub, and approve the blueprint in `render.yaml`. You get a `https://territory-paddle-xxxx.onrender.com` address. On the free plan the service goes to sleep after about 15 minutes with no visitors and takes around a minute to wake up, which also clears any open rooms. The paid Starter plan keeps it awake all the time.
+
+### Fly.io (always on, needs a card)
+
+```bash
+fly launch --copy-config --no-deploy   # choose a unique app name if asked
+fly deploy
+```
+
+`fly.toml` keeps one machine running at all times (`auto_stop_machines = "off"`), so rooms never get cut off by sleep.
+
+### Notes
+
 The server needs a host that keeps one Node process running, because the simulation loop runs inside it. Serverless functions (including Vercel functions) will not work for it. Fly.io, Railway and Render all fit: point them at this folder, use `npm start`, and they provide HTTPS, which the client automatically upgrades to `wss://`.
 
 Rooms live in the memory of one process, so run a single instance for now. Pick the region closest to most of your players.
