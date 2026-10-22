@@ -54,12 +54,17 @@ input[type="text"] {
   letter-spacing: 0.2em; text-align: center; text-transform: uppercase;
 }
 input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
+.snd {
+  position: absolute; top: 8px; right: 8px; z-index: 5; width: auto; padding: 6px 8px;
+  background: transparent; border: 0; color: var(--muted); font-size: 12px;
+}
 .msg { min-height: 18px; margin: 8px 0; font-size: 12px; color: var(--muted); }
 </style>
 </head>
 <body>
 <div id="stage">
   <canvas id="c" aria-label="Game board"></canvas>
+  <button id="snd" class="snd" aria-pressed="true">sound on</button>
 
   <div id="menu" class="overlay">
     <div class="card">
@@ -125,7 +130,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
   var mode = 'menu';              // menu (demo behind the overlay) | local | online
   var sim = null, watch = false, level = 'medium';
   var myTeam = 0, viewTeam = 0;
-  var ui = { banner: null, fx: [], shake: 0, endAt: 0, demoRestart: 0 };
+  var ui = { banner: null, fx: [], shake: 0, endAt: 0, demoRestart: 0, parts: [], trails: {}, padFlash: [0, 0], lastCount: 0, lastPhase: '' };
   var keys = { up: false, down: false };
   var net = null;                 // online session
   var view = null;                // rebuilt each frame from snapshots when online
@@ -158,7 +163,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     closeNet();
     watch = isWatch; myTeam = 0; viewTeam = 0;
     sim = Sim.createSim(seed(), [isWatch ? level : null, level]);
-    ui.fx = []; ui.banner = null; ui.endAt = 0; ui.shake = 0;
+    ui.fx = []; ui.banner = null; ui.endAt = 0; ui.shake = 0; ui.parts = []; ui.trails = {}; ui.lastPhase = '';
     mode = 'local';
     hideAllOverlays();
   }
@@ -166,6 +171,115 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     closeNet();
     hideAllOverlays(); show('menu');
     startDemo();
+  }
+
+  /* ---------- sound ---------- */
+  // Everything is synthesised with Web Audio, so there are no files to load.
+  var audio = { ctx: null, master: null, bed: null, on: true, lastHit: 0, noiseBuf: null };
+  try { audio.on = localStorage.getItem('tp-sound') !== 'off'; } catch (e) {}
+  function audioStart() {
+    if (!audio.on) return;
+    if (!audio.ctx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      audio.ctx = new AC();
+      audio.master = audio.ctx.createGain(); audio.master.gain.value = 0.7;
+      audio.master.connect(audio.ctx.destination);
+    }
+    if (audio.ctx.state === 'suspended') audio.ctx.resume();
+    if (!audio.bed) startBed();
+  }
+  function tone(f1, f2, dur, vol, type, delay) {
+    if (!audio.on || !audio.ctx) return;
+    var c = audio.ctx, t = c.currentTime + (delay || 0), o = c.createOscillator(), g = c.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(f1, t);
+    if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(audio.master);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  function hiss(dur, vol, from, to) {
+    if (!audio.on || !audio.ctx) return;
+    var c = audio.ctx, t = c.currentTime;
+    if (!audio.noiseBuf) {
+      audio.noiseBuf = c.createBuffer(1, c.sampleRate, c.sampleRate);
+      var d = audio.noiseBuf.getChannelData(0);
+      for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    var n = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+    n.buffer = audio.noiseBuf; f.type = 'lowpass';
+    f.frequency.setValueAtTime(from, t); f.frequency.exponentialRampToValueAtTime(to, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    n.connect(f); f.connect(g); g.connect(audio.master);
+    n.start(t); n.stop(t + dur + 0.05);
+  }
+  function startBed() {
+    // a quiet low hum that slowly breathes under the game
+    var c = audio.ctx, f = c.createBiquadFilter(), g = c.createGain(), lfo = c.createOscillator(), depth = c.createGain();
+    f.type = 'lowpass'; f.frequency.value = 520;
+    g.gain.value = 0; g.gain.setTargetAtTime(0.03, c.currentTime, 2.5);
+    [55, 82.5, 110.3, 164.6].forEach(function (hz, i) {
+      var o = c.createOscillator(); o.type = i % 2 ? 'triangle' : 'sine'; o.frequency.value = hz;
+      o.connect(f); o.start();
+    });
+    lfo.frequency.value = 0.07; depth.gain.value = 0.012;
+    lfo.connect(depth); depth.connect(g.gain); lfo.start();
+    f.connect(g); g.connect(audio.master);
+    audio.bed = g;
+  }
+  function setSound(on, quiet) {
+    audio.on = on;
+    if (!quiet) {
+      try { localStorage.setItem('tp-sound', on ? 'on' : 'off'); } catch (e) {}
+      if (on) audioStart();
+    }
+    if (audio.master) audio.master.gain.setTargetAtTime(on ? 0.7 : 0, audio.ctx.currentTime, 0.05);
+    $('snd').textContent = on ? 'sound on' : 'sound off';
+    $('snd').setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  $('snd').addEventListener('click', function (e) { e.stopPropagation(); setSound(!audio.on); });
+  setSound(audio.on, true);
+  // browsers only allow sound after the player touches or presses something
+  ['pointerdown', 'keydown'].forEach(function (t) { window.addEventListener(t, audioStart); });
+
+  function sfx(e) {
+    if (mode === 'menu') return;                    // the demo behind the menu stays quiet
+    var mine = e.team === viewTeam, c = audio.ctx;
+    if (e.type === 'hit') {
+      if (!c || c.currentTime - audio.lastHit < 0.045) return;
+      audio.lastHit = c.currentTime;
+      tone(mine ? 1250 : 950, mine ? 820 : 640, 0.05, mine ? 0.05 : 0.025, 'triangle');
+    } else if (e.type === 'save') {
+      tone(mine ? 520 : 400, mine ? 500 : 390, 0.13, mine ? 0.14 : 0.07, 'sine');
+      tone(mine ? 1040 : 800, null, 0.05, 0.03, 'triangle');
+    } else if (e.type === 'miss') {
+      tone(150, 48, 0.4, mine ? 0.24 : 0.12, 'sine');
+      hiss(0.25, mine ? 0.09 : 0.05, 1400, 200);
+    } else if (e.type === 'pickup') {
+      tone(660, null, 0.07, 0.07, 'triangle'); tone(990, null, 0.1, 0.07, 'triangle', 0.07);
+    } else if (e.type === 'portal') {
+      hiss(0.3, 0.06, 300, 3000);
+    } else if (e.type === 'banner') {
+      tone(880, 870, 0.3, 0.035, 'sine');
+    }
+  }
+  function phaseSounds(s) {
+    if (mode === 'menu' || !s) return;
+    if (s.phase === 'countdown') {
+      var n = Math.ceil(s.cd);
+      if (n !== ui.lastCount && n > 0) tone(440, null, 0.09, 0.07, 'triangle');
+      ui.lastCount = n;
+    } else if (ui.lastPhase === 'countdown') {
+      tone(880, null, 0.16, 0.08, 'triangle');
+    }
+    ui.lastPhase = s.phase;
+  }
+  function endSound(title) {
+    var notes = title === 'You win' ? [523, 659, 784] : (title === 'Draw' ? [440, 440] : (title === 'You lose' ? [392, 330, 262] : [523, 659]));
+    notes.forEach(function (hz, i) { tone(hz, null, 0.22, 0.08, 'triangle', i * 0.12); });
   }
 
   /* ---------- input ---------- */
@@ -277,7 +391,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
       if (net.snaps.length > 8) net.snaps.shift();
       if (m.ev && m.ev.length) handleEvents(m.ev, now);
     } else if (m.t === 'restart') {
-      net.snaps = []; net.viewSrc = null; net.over = false; net.endMsg = null; view = newView();
+      net.snaps = []; net.viewSrc = null; ui.parts = []; ui.trails = {}; ui.lastPhase = ''; net.over = false; net.endMsg = null; view = newView();
       hide('result'); ui.endAt = 0; ui.banner = null;
       $('again').disabled = false; $('again').textContent = 'Rematch'; $('resultMsg').textContent = '';
     } else if (m.t === 'end') {
@@ -354,9 +468,22 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
   }
 
   /* ---------- events ---------- */
+  function burst(e, now) {
+    var n = e.type === 'hit' ? 4 : e.type === 'save' ? 6 : e.type === 'miss' ? 16 : e.type === 'pickup' ? 8 : 0;
+    var away = e.type === 'save' ? (e.team === 0 ? 1 : -1) : 0;
+    for (var i = 0; i < n && ui.parts.length < 160; i++) {
+      var a = Math.random() * Math.PI * 2, sp = (e.type === 'miss' ? 6 : 3) + Math.random() * 5;
+      var vx = Math.cos(a) * sp, vy = Math.sin(a) * sp;
+      if (away) vx = Math.abs(vx) * away;                // fly off the paddle face
+      ui.parts.push({ x: e.x, y: e.y, vx: vx, vy: vy, t0: now, life: e.type === 'miss' ? 650 : 380, size: e.type === 'miss' ? 0.32 : 0.2 });
+    }
+  }
   function handleEvents(ev, now) {
     for (var i = 0; i < ev.length; i++) {
       var e = ev[i];
+      sfx(e);
+      if (!reduceMotion) burst(e, now);
+      if (e.type === 'save') ui.padFlash[e.team] = now;
       if (e.type === 'banner') ui.banner = { text: e.text, team: e.team, until: now + 2200 };
       else if (e.type === 'save') ui.fx.push({ x: e.x, y: e.y, t0: now, team: e.team, kind: 'save' });
       else if (e.type === 'hit') ui.fx.push({ x: e.x, y: e.y, t0: now, team: e.team, kind: 'hit' });
@@ -387,6 +514,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
       $('resultStats').textContent = Math.round(share[0] * 100) + ' / ' + Math.round(share[1] * 100) + ' · ' + fmt(tm);
     }
     $('resultTitle').textContent = title;
+    endSound(title);
     show('result');
   }
 
@@ -519,10 +647,53 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
       ctx.fillRect(pxx, oy + pd.y * cs - ph / 2, PADW * cs, ph);
       ctx.strokeStyle = i === 0 ? C.pinkBall : C.indBall; ctx.lineWidth = 1;
       ctx.strokeRect(pxx + 0.5, oy + pd.y * cs - ph / 2 + 0.5, PADW * cs - 1, ph - 1);
+      var fl = 1 - (now - ui.padFlash[i]) / 180;
+      if (fl > 0) {                                        // flash on a save
+        var grow = (1 - fl) * cs * 0.6;
+        ctx.globalCompositeOperation = 'difference'; ctx.strokeStyle = 'rgba(255,255,255,' + fl.toFixed(2) + ')'; ctx.lineWidth = 2;
+        ctx.strokeRect(pxx - grow, oy + pd.y * cs - ph / 2 - grow, PADW * cs + grow * 2, ph + grow * 2);
+        ctx.globalCompositeOperation = 'source-over';
+      }
       if (s.t < s.turretUntil[i] && s.phase !== 'countdown') {
         ctx.fillStyle = C.tile;
         ctx.fillRect(i === 0 ? pxx + PADW * cs : pxx - cs * 0.3, oy + pd.y * cs - cs * 0.15, cs * 0.3, cs * 0.3);
       }
+    }
+
+    // trails
+    var seenIds = {};
+    for (i = 0; i < s.balls.length; i++) {
+      var tb = s.balls[i];
+      if (s.ghostUntil[tb.team] > s.t && tb.team !== viewTeam) continue;
+      seenIds[tb.id] = 1;
+      var tr = ui.trails[tb.id] || (ui.trails[tb.id] = []);
+      var lastP = tr[tr.length - 1];
+      if (lastP && Math.hypot(lastP.x - tb.x, lastP.y - tb.y) > 3) tr.length = 0;   // teleported: start fresh
+      tr.push({ x: tb.x, y: tb.y });
+      if (tr.length > 9) tr.shift();
+      if (reduceMotion) continue;
+      ctx.fillStyle = tb.team === 0 ? C.indBall : C.pinkBall;
+      for (var j = 0; j < tr.length - 1; j++) {
+        var tf = (j + 1) / tr.length;
+        ctx.globalAlpha = tf * 0.3;
+        ctx.beginPath(); ctx.arc(ox + tr[j].x * cs, oy + tr[j].y * cs, tb.r * cs * (0.35 + 0.55 * tf), 0, 7); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+    for (var tid in ui.trails) if (!seenIds[tid]) delete ui.trails[tid];
+
+    // particles, inverted against whatever they fly over so they show on both halves
+    ui.parts = ui.parts.filter(function (q) { return now - q.t0 < q.life; });
+    if (ui.parts.length) {
+      ctx.globalCompositeOperation = 'difference'; ctx.fillStyle = '#fff';
+      for (i = 0; i < ui.parts.length; i++) {
+        var q = ui.parts[i], age = (now - q.t0) / 1000, fade = 1 - (now - q.t0) / q.life;
+        var drag = (1 - Math.exp(-3 * age)) / 3;          // slows down as it flies
+        var qs = q.size * cs * (0.5 + 0.5 * fade);
+        ctx.globalAlpha = fade;
+        ctx.fillRect(ox + (q.x + q.vx * drag) * cs - qs / 2, oy + (q.y + q.vy * drag) * cs - qs / 2, qs, qs);
+      }
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     }
 
     for (i = 0; i < s.balls.length; i++) {
@@ -639,6 +810,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
       }
     }
     if (ui.shake > 0) ui.shake = Math.max(0, ui.shake - dt);
+    phaseSounds(s);
     draw(now, s);
     requestAnimationFrame(frame);
   }

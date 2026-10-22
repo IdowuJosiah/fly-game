@@ -26,7 +26,7 @@ Settings:
 ```
 server.js          HTTP + WebSocket server, rooms, 60 Hz simulation, 20 Hz snapshots
 shared/sim.js      Game rules (pure functions, no network or browser code) and every tunable constant
-public/index.html  Client: drawing, input, bot matches, online play
+public/index.html  Client: drawing, input, bot matches, online play, sound (Web Audio, no files) and effects
 test/nettest.js    Scripted two-player test of the server
 test/lagtest.js    Checks that no catch a player saw is lost to lag, and that the ball never stops or jumps (LAG=ms one way)
 ```
