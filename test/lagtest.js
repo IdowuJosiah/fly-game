@@ -10,7 +10,7 @@ const REACT = Number(process.env.REACT || 2.5);   // cells from the wall where t
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function player(name) {
-  const p = { name, snaps: [], pad: ROWS / 2, team: -1, saves: 0, misses: 0, room: null };
+  const p = { name, snaps: [], pad: ROWS / 2, team: -1, saves: 0, misses: 0, room: null, last: {}, still: {}, stops: 0, jumps: 0 };
   p.ws = new WebSocket(URL);
   p.open = new Promise((r) => p.ws.on('open', r));
   p.ws.on('message', (d) => setTimeout(() => {
@@ -19,6 +19,16 @@ function player(name) {
     if (m.t === 'restart') p.snaps = [];
     if (m.t !== 'snap') return;
     p.snaps.push({ rt: Date.now(), d: m }); if (p.snaps.length > 10) p.snaps.shift();
+    if (m.ph === 'play' || m.ph === 'sudden') for (const q of m.balls) {
+      const o = p.last[q[0]];
+      if (o) {
+        const d = Math.hypot(q[1] - o[1], q[2] - o[2]);
+        p.still[q[0]] = d < 0.01 ? (p.still[q[0]] || 0) + 1 : 0;
+        if (p.still[q[0]] === 3) p.stops++;
+        if (d > 1.5) p.jumps++;
+      }
+      p.last[q[0]] = q;
+    }
     for (const e of m.ev) if (e.team === p.team && (e.type === 'save' || e.type === 'miss')) { p.events.push(e.type); if (e.type === 'miss') p.missEv.push(e); }
   }, LAG));
   p.send = (o) => setTimeout(() => { if (p.ws.readyState === 1) p.ws.send(JSON.stringify(o)); }, LAG);
@@ -75,6 +85,7 @@ function player(name) {
       }
     }
   }
-  console.log(`one-way lag ${LAG} ms: ${saves} saves, ${misses} misses, ${unfair} of them unfair`);
+  // both players watch both balls, so halve the counts
+  console.log(`one-way lag ${LAG} ms: ${saves} saves, ${misses} misses, ${unfair} of them unfair; ball stopped ${(a.stops + b.stops) / 2} times, jumped ${(a.jumps + b.jumps) / 2} times`);
   process.exit(0);
 })();

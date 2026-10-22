@@ -10,7 +10,7 @@
     catchupShare: 0.35, catchupHold: 5, catchupCooldown: 30, respawnDelay: 2.5, countdown: 3,
     fortifyTime: 10, tidalSpeed: 10, tidalHalf: 3, wormholeTime: 8,
     turretTime: 6, turretEvery: 0.8, shotSpeed: 22, infilTime: 8, ghostTime: 5, tieMargin: 0.01,
-    lagMax: 0.4
+    lagMax: 0.4, guessMargin: 1.5, glideTime: 0.15
   };
   var TYPES = ['fortify', 'tidal', 'wormhole', 'turret', 'infiltrator', 'eclipse'];
   var NAMES = {
@@ -156,24 +156,52 @@
     if (s.lagComp[k]) {
       // Online the player sees the ball a little late, so hold it at the paddle until we know
       // where their paddle was on their screen at this moment.
-      b.held = { t: s.t, y: b.y };
       b.x = k === 0 ? PADW + b.r : COLS - PADW - b.r;
+      b.held = { t: s.t, x: b.x, y: b.y, vx: b.vx, vy: b.vy };
+      showHeld(s, b);
       return;
     }
     if (dist <= 0) miss(s, b, k);
+  }
+
+  // While a held ball waits for the player's report, keep it moving for everyone watching:
+  // bounce it off the paddle we expect the player had, or let it carry on into the wall.
+  // b.show is what gets drawn; the real ball stays put until the call is made.
+  function showHeld(s, b) {
+    var k = b.team, h = b.held, half = CFG.paddleH / 2 + CFG.paddleTol, t = s.t - h.t;
+    var seen = s.lagComp[k] ? s.lagComp[k](h.t) : null;
+    // lean toward a save: most held balls turn out to be caught
+    var guess = Math.abs(h.y - s.pad[k].y) <= half ? s.pad[k].y : (seen && Math.abs(h.y - seen.y) <= half + CFG.guessMargin ? seen.y : null);
+    var vx = h.vx, vy = h.vy;
+    if (guess !== null) {
+      var off = clamp((h.y - guess) / half, -1, 1), ang = off * CFG.maxAngle, sp = Math.hypot(vx, vy);
+      if (Math.abs(ang) < CFG.minAngle) ang = (off < 0 ? -1 : 1) * CFG.minAngle;
+      vx = (k === 0 ? 1 : -1) * Math.cos(ang) * sp; vy = Math.sin(ang) * sp;
+    }
+    var x = clamp(h.x + vx * t, b.r, COLS - b.r), y = h.y + vy * t;
+    if (y < b.r) { y = 2 * b.r - y; vy = -vy; } else if (y > ROWS - b.r) { y = 2 * (ROWS - b.r) - y; vy = -vy; }
+    b.show = { x: x, y: clamp(y, b.r, ROWS - b.r), vx: vx, vy: vy };
   }
 
   function resolveHeld(s, b, dt) {
     var k = b.team, h = b.held, half = CFG.paddleH / 2 + CFG.paddleTol;
     var waited = s.t - h.t, seen = s.lagComp[k] ? s.lagComp[k](h.t) : null, padY = null;
     if (Math.abs(h.y - s.pad[k].y) <= half) padY = s.pad[k].y;
-    else if (seen && !seen.ready && waited < CFG.lagMax) return;
+    else if (seen && !seen.ready && waited < CFG.lagMax) { showHeld(s, b); return; }
     else if (seen && Math.abs(h.y - seen.y) <= half) padY = seen.y;
-    b.held = null; b.y = h.y;
+    var shown = b.show;
+    b.held = null; b.show = null; b.y = h.y;
     if (padY === null) { miss(s, b, k, h.t); return; }
     save(s, b, k, padY);
     // catch the ball up on the time it spent waiting
     for (var n = Math.min(30, Math.round(waited / dt)); n > 0 && !b.dead; n--) advance(s, b, dt);
+    // glide from where the ball was shown to where it really is instead of jumping
+    if (shown && !b.dead) b.glide = { dx: shown.x - b.x, dy: shown.y - b.y, t0: s.t };
+  }
+  function glide(s, b) {
+    var g = b.glide, f = 1 - (s.t - g.t0) / CFG.glideTime;
+    if (f <= 0) { b.glide = null; b.show = null; return; }
+    b.show = { x: clamp(b.x + g.dx * f, b.r, COLS - b.r), y: clamp(b.y + g.dy * f, b.r, ROWS - b.r), vx: b.vx, vy: b.vy };
   }
 
   function advance(s, b, dt) {
@@ -342,6 +370,7 @@
       b.vx *= tg / sp0; b.vy *= tg / sp0;
       if (b.held) resolveHeld(s, b, dt);
       else advance(s, b, dt);
+      if (b.glide && !b.held) glide(s, b);
     }
     if (s.balls.some(function (q) { return q.dead; })) s.balls = s.balls.filter(function (q) { return !q.dead; });
 

@@ -69,7 +69,7 @@ function snapshot(s, events) {
     own: pack((i) => s.owner[i] === 1),
     fort: pack((i) => s.fortUntil[i] > s.t),
     pad: [r2(s.pad[0].y), r2(s.pad[1].y)],
-    balls: s.balls.map((b) => [b.id, r2(b.x), r2(b.y), r2(b.vx), r2(b.vy), b.team, b.big ? 1 : 0]),
+    balls: s.balls.map((b) => { const v = b.show || b; return [b.id, r2(v.x), r2(v.y), r2(v.vx), r2(v.vy), b.team, b.big ? 1 : 0]; }),
     tiles: s.tiles.map((t) => [t.type, t.x, t.y, rem(t.born + t.life)]),
     waves: s.waves.map((w) => [w.team, r2(w.row), r2(w.front)]),
     shots: s.shots.map((q) => [q.team, r2(q.x), r2(q.y), q.dir]),
@@ -113,7 +113,12 @@ class Room {
     const p = this.players[k];
     if (!p || !p.connected || !p.seen || !p.seen.length) return null;
     const h = p.seen, last = h[h.length - 1];
-    if (last[0] < t) return { ready: false, y: last[1] };
+    if (last[0] < t) {
+      // not reported yet: move the last known paddle toward where the player is aiming
+      const pad = this.sim.pad[k], reach = CFG.paddleSpeed * (t - last[0]);
+      const y = last[1] + clamp(pad.target - last[1], -reach, reach);
+      return { ready: false, y: clamp(y, CFG.paddleH / 2, ROWS - CFG.paddleH / 2) };
+    }
     let i = 0;
     while (h[i][0] < t) i++;
     if (i === 0) return { ready: true, y: h[0][1] };
