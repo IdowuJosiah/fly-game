@@ -18,7 +18,7 @@ Settings:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | 3000 | Port to listen on (hosting platforms set this for you) |
-| `GRACE_MS` | 10000 | How long a dropped player has to rejoin before they forfeit and the match ends |
+| `GRACE_MS` | 5000 | How long the match pauses for a dropped player before they forfeit and the match ends |
 | `ROUND_TIME` | 120 | Round length in seconds, handy for quick tests |
 
 ## Files
@@ -37,7 +37,7 @@ test/lagtest.js    Checks that no catch a player saw is lost to lag, and that th
 - Clients send only where their paddle should be (`{t:"input", y}`), up to about 30 times a second. The server clamps the paddle speed, ignores invalid values, and drops connections that send more than 120 messages a second.
 - Your own paddle is drawn from local input so it never feels delayed. Balls and the other paddle are drawn about 100 ms behind the latest snapshot and interpolated, which hides network jitter.
 - Because of that gap, the server judges catches the way the player saw them. Each input also carries where the paddle was drawn (`py`) and the moment the screen was showing (`vt`). When the server's own paddle would miss, it waits up to 0.4 s for that report and saves the ball if the player's paddle covered it. While it waits, snapshots show the ball bouncing off the paddle the player most likely had (or carrying on into the wall), so nobody sees it stop, and once the call is made the ball glides into its real position over 0.15 s. `test/lagtest.js` checks this with simulated players behind a laggy connection.
-- A player who disconnects has 10 seconds to rejoin (the page retries automatically and keeps a session token), which covers a brief network drop. After that the match ends and the player who stayed wins. Choosing **Back to menu** mid-match ends it straight away.
+- If a player disconnects, or sends nothing for 2 seconds, the match pauses for both players and the other one sees a countdown. The page reconnects automatically with a session token; back within 5 seconds, the match resumes after a 1 second hold. Otherwise it ends and the player who stayed wins. Choosing **Back to menu** mid-match ends it straight away.
 - **Random opponent** pairs players first come, first served: the first searcher waits in a public room and the next searcher joins it. Private rooms made with **Create room** are never used for random matches.
 - The round length is sent to clients when they join, so changing it on the server is enough.
 

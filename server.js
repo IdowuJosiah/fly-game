@@ -16,7 +16,9 @@ const Sim = require('./shared/sim.js').TPSim;
 const { CFG, COLS, ROWS, N } = Sim;
 if (process.env.ROUND_TIME) CFG.roundTime = Number(process.env.ROUND_TIME);   // for testing only
 const PORT = Number(process.env.PORT) || 3000;
-const GRACE_MS = Number(process.env.GRACE_MS) || 10000;     // time a dropped player has to rejoin before they forfeit
+const GRACE_MS = Number(process.env.GRACE_MS) || 5000;      // the match pauses this long for a dropped player before they forfeit
+const STALE_MS = 2000;                                      // no messages for this long counts as dropped (clients send ~30 a second)
+const RESUME_MS = 1000;                                     // short hold after a player comes back, so both are ready
 const EMPTY_ROOM_MS = 30000;                                // delete a room nobody has joined for this long
 const STEP = 1 / 60;
 const SNAP_EVERY = 0.05;                                    // 20 snapshots per second
@@ -86,7 +88,7 @@ class Room {
   constructor(code, pub) {
     this.code = code;
     this.pub = !!pub;                // created by "find an opponent" rather than shared by code
-    this.players = [null, null];     // { ws, token, connected, goneAt, rematch }
+    this.players = [null, null];     // { ws, token, connected, goneAt, lastSeen, stale, rematch }
     this.sim = null;
     this.timer = null;
     this.state = 'lobby';            // lobby | playing | ended
@@ -102,8 +104,8 @@ class Room {
     this.sim = Sim.createSim(crypto.randomInt(0, 2 ** 32), [null, null]);
     this.sim.lagComp = [0, 1].map((k) => (t) => this.seenPaddle(k, t));
     this.state = 'playing';
-    this.acc = 0; this.snapAcc = 0; this.evq = []; this.last = Date.now(); this.forfeit = -1;
-    for (const p of this.players) if (p) { p.rematch = false; p.seen = []; }
+    this.acc = 0; this.snapAcc = 0; this.evq = []; this.last = Date.now(); this.forfeit = -1; this.resumeAt = 0;
+    for (const p of this.players) if (p) { p.rematch = false; p.seen = []; p.lastSeen = Date.now(); p.stale = false; }
     this.broadcast({ t: 'restart' });
     this.timer = setInterval(() => this.tick(), 16);
   }
@@ -126,17 +128,30 @@ class Room {
     return { ready: true, y: a[1] + (b[1] - a[1]) * f };
   }
   stopTimer() { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
-  checkForfeit(now) {                // a player gone longer than the grace period loses the match
-    if (this.sim.over) return;
+  // A player who disconnected, or has sent nothing for a while, pauses the match. Returns how many
+  // ms are left to wait for them (0 if nobody is missing). Gone longer than GRACE_MS loses the match.
+  checkAway(now) {
+    if (this.sim.over) return 0;
+    let left = 0;
     for (let k = 0; k < 2; k++) {
       const p = this.players[k];
-      if (p && !p.connected && now - p.goneAt > GRACE_MS) {
+      if (!p) continue;
+      const since = !p.connected ? p.goneAt : (now - p.lastSeen > STALE_MS ? p.lastSeen + STALE_MS : null);
+      const other = this.players[1 - k];
+      if (since === null) {
+        if (p.stale) { p.stale = false; this.resumeAt = now + RESUME_MS; if (other) send(other.ws, { t: 'opp', status: 'back' }); }
+        continue;
+      }
+      if (p.connected && !p.stale) { p.stale = true; if (other) send(other.ws, { t: 'opp', status: 'away' }); }
+      if (now - since > GRACE_MS) {
         const s = this.sim;
         s.over = true; s.phase = 'over'; s.winner = 1 - k;
         this.forfeit = k;
-        return;
+        return 0;
       }
+      left = Math.max(left, GRACE_MS - (now - since));
     }
+    return left;
   }
   endMsg() {
     const s = this.sim;
@@ -146,8 +161,9 @@ class Room {
     const s = this.sim, now = Date.now();
     let dt = (now - this.last) / 1000; this.last = now;
     if (dt > 0.25) dt = 0.25;
-    this.acc += dt;
-    this.checkForfeit(now);
+    const wait = this.checkAway(now), resuming = now < this.resumeAt;
+    if (wait || resuming) this.acc = 0;               // match is paused while someone is missing
+    else this.acc += dt;
     while (this.acc >= STEP && !s.over) {
       Sim.step(s, STEP);
       this.acc -= STEP;
@@ -157,7 +173,10 @@ class Room {
     this.snapAcc += dt;
     if (this.snapAcc >= SNAP_EVERY || s.over) {
       this.snapAcc = this.snapAcc >= 2 * SNAP_EVERY ? 0 : this.snapAcc - SNAP_EVERY;   // keep the remainder so the average stays at 20 Hz
-      this.broadcast(snapshot(s, this.evq));
+      const snap = snapshot(s, this.evq);
+      if (wait) snap.wt = Math.ceil(wait / 1000);
+      else if (resuming) snap.rs = 1;
+      this.broadcast(snap);
       this.evq = [];
     }
     if (s.over) {
@@ -234,6 +253,7 @@ wss.on('connection', (ws) => {
     const m = ws.meta, now = Date.now();
     if (now - m.windowStart > 1000) { m.windowStart = now; m.n = 0; }
     if (++m.n > MAX_MSGS_PER_SEC) { ws.close(1008, 'Too many messages'); return; }
+    if (m.room) { const me = m.room.players[m.team]; if (me && me.ws === ws) me.lastSeen = now; }
     let msg;
     try { msg = JSON.parse(raw); } catch (e) { return; }
     if (!msg || typeof msg.t !== 'string') return;
@@ -277,7 +297,8 @@ wss.on('connection', (ws) => {
       if (!room || team < 0) { send(ws, { t: 'error', msg: 'Match not found', fatal: true }); return; }
       const p = room.players[team];
       if (p.ws !== ws && p.ws.readyState === 1) p.ws.close(1000, 'Replaced');
-      p.ws = ws; p.connected = true; p.goneAt = 0;
+      p.ws = ws; p.connected = true; p.goneAt = 0; p.lastSeen = Date.now(); p.stale = false;
+      if (room.state === 'playing') room.resumeAt = Date.now() + RESUME_MS;
       m.room = room; m.team = team;
       send(ws, { t: 'room', code: room.code, team, token: p.token, players: room.count(), pub: room.pub, cfg: { roundTime: CFG.roundTime } });
       const other = room.players[1 - team];

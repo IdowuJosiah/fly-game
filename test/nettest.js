@@ -2,12 +2,12 @@ const WebSocket=require('ws');
 const URL=process.env.URL||'ws://localhost:3100/ws';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function client(name){
-  const c={name,msgs:[],snaps:0,first:0,last:0,events:{},ended:null,room:null,opp:[],errors:[],restarts:0,bytes:0,maxBytes:0};
+  const c={name,msgs:[],snaps:0,first:0,last:0,events:{},ended:null,room:null,opp:[],errors:[],restarts:0,bytes:0,maxBytes:0,waits:[],resumes:0};
   c.ws=new WebSocket(URL);
   c.open=new Promise(r=>c.ws.on('open',r));
   c.ws.on('message',d=>{
     const raw=d.toString(); const m=JSON.parse(raw);
-    if(m.t==='snap'){ c.snaps++; const n=Date.now(); if(!c.first)c.first=n; c.last=n; c.bytes+=raw.length; c.maxBytes=Math.max(c.maxBytes,raw.length); c.lastSnap=m; for(const e of m.ev) c.events[e.type]=(c.events[e.type]||0)+1; }
+    if(m.t==='snap'){ if(m.wt){ c.waits.push(m.st); } if(m.rs) c.resumes++; c.snaps++; const n=Date.now(); if(!c.first)c.first=n; c.last=n; c.bytes+=raw.length; c.maxBytes=Math.max(c.maxBytes,raw.length); c.lastSnap=m; for(const e of m.ev) c.events[e.type]=(c.events[e.type]||0)+1; }
     else if(m.t==='room') c.room=m;
     else if(m.t==='end') c.ended=m;
     else if(m.t==='opp') c.opp.push(m.status);
@@ -52,7 +52,13 @@ function wander(c,until){ // fake paddle input following the ball nearest to own
   ok('A told B is away', a.opp.includes('away'));
   const b2=client('B2'); await b2.open; b2.send({t:'rejoin',code,token:tokenB}); await sleep(400);
   ok('B rejoined same team', b2.room&&b2.room.team===1); ok('A told B is back', a.opp.includes('back'));
-  const ib2=wander(b2); await sleep(500); ok('rejoined player gets snapshots', b2.snaps>5);
+  ok('match paused while B was away', a.waits.length>0 && a.waits.every(t=>t===a.waits[0]));
+  let ib2=wander(b2); await sleep(1500); ok('rejoined player gets snapshots', b2.snaps>5); ok('short hold before resuming', a.resumes>0);
+  // B goes silent without disconnecting (a dead connection): the match pauses, then resumes when B speaks again
+  a.waits=[]; const awayBefore=a.opp.filter(x=>x==='away').length;
+  clearInterval(ib2); await sleep(2500);
+  ok('silent player pauses the match', a.opp.filter(x=>x==='away').length===awayBefore+1 && a.waits.length>0 && !a.ended);
+  ib2=wander(b2); await sleep(400); ok('A told silent B is back', a.opp[a.opp.length-1]==='back');
   // disconnect again and let the grace period lapse => B forfeits
   a.ended=null; clearInterval(ib2); b2.ws.terminate(); await sleep(2200);
   ok('match ends when a player stays gone', !!a.ended && a.ended.forfeit===1 && a.ended.winner===0);

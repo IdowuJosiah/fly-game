@@ -392,7 +392,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     ws.onclose = function () {
       if (!net || net.closing) return;
       if (!net.joined) { $('onlineMsg').textContent = 'Server unreachable'; net = null; return; }
-      if (net.retries < 10) { net.retries++; ui.banner = { text: 'Reconnecting', team: -1, until: performance.now() + 1500 }; net.retryTimer = setTimeout(connect, 1000); }
+      if (net.retries < 10) { net.retries++; ui.banner = { text: 'Reconnecting', team: -1, until: performance.now() + 1500 }; net.retryTimer = setTimeout(connect, net.retries === 1 ? 250 : 800); }
       else { ui.banner = { text: 'Connection lost', team: -1, until: performance.now() + 4000 }; showEnd({ lost: true }); }
     };
   }
@@ -413,6 +413,8 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
       net.snaps.push({ rt: now, d: m });
       if (net.snaps.length > 8) net.snaps.shift();
       if (m.ev && m.ev.length) handleEvents(m.ev, now);
+      if (m.wt) ui.banner = { text: 'Opponent reconnecting ' + m.wt, team: -1, until: now + 400 };
+      else if (m.rs) ui.banner = { text: 'Resuming', team: -1, until: now + 400 };
     } else if (m.t === 'restart') {
       net.snaps = []; net.viewSrc = null; ui.parts = []; ui.trails = {}; ui.lastPhase = ''; net.over = false; net.endMsg = null; view = newView();
       hide('result'); ui.endAt = 0; ui.banner = null;
