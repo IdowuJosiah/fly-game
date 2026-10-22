@@ -24,18 +24,19 @@ Settings:
 ## Files
 
 ```
-server.js          HTTP + WebSocket server, rooms, 60 Hz simulation, 20 Hz snapshots
+server.js          HTTP + WebSocket server, rooms, 60 Hz simulation, 30 Hz snapshots
 shared/sim.js      Game rules (pure functions, no network or browser code) and every tunable constant
 public/index.html  Client: drawing, input, bot matches, online play, sound (Web Audio, no files) and effects
 test/nettest.js    Scripted two-player test of the server
+test/jitterproxy.js Relay that adds delay and jitter between browsers and the server, for testing
 test/lagtest.js    Checks that no catch a player saw is lost to lag, and that the ball never stops or jumps (LAG=ms one way)
 ```
 
 ## How the networking works
 
-- The server steps the simulation at 60 Hz and sends a snapshot to both players 20 times a second (about 580 bytes each, roughly 12 KB/s per player).
+- The server steps the simulation at 60 Hz and sends a snapshot to both players 30 times a second (about 590 bytes each, roughly 18 KB/s per player).
 - Clients send only where their paddle should be (`{t:"input", y}`), up to about 30 times a second. The server clamps the paddle speed, ignores invalid values, and drops connections that send more than 120 messages a second.
-- Your own paddle is drawn from local input so it never feels delayed. Balls and the other paddle are drawn about 100 ms behind the latest snapshot and interpolated, which hides network jitter.
+- Your own paddle is drawn from local input so it never feels delayed. Balls and the other paddle are interpolated between snapshots and paced by the server's clock (`sv` in each snapshot) rather than by when packets arrive, so bursty mobile connections don't make the ball stutter. The playback delay adapts to each connection: about 50 ms on a steady one, up to about 190 ms on a very jittery one.
 - Because of that gap, the server judges catches the way the player saw them. Each input also carries where the paddle was drawn (`py`) and the moment the screen was showing (`vt`). When the server's own paddle would miss, it waits up to 0.4 s for that report and saves the ball if the player's paddle covered it. While it waits, snapshots show the ball bouncing off the paddle the player most likely had (or carrying on into the wall), so nobody sees it stop, and once the call is made the ball glides into its real position over 0.15 s. `test/lagtest.js` checks this with simulated players behind a laggy connection.
 - A room made with **Create room** stays open for 15 minutes if its creator's connection drops (for example while they switch apps to send the code); only **Cancel** closes it. Pages ping once a second in the room screen, and a match only starts when both players are connected and pinging, so a friend who joins while the creator is away sees "waiting for host" until they are back.
 - If a player disconnects, or sends nothing for 2 seconds, the match pauses for both players and the other one sees a countdown. The page reconnects automatically with a session token; back within 5 seconds, the match resumes after a 1 second hold. Otherwise it ends and the player who stayed wins. Choosing **Back to menu** mid-match ends it straight away.

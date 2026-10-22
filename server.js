@@ -22,7 +22,8 @@ const RESUME_MS = 1000;                                     // short hold after 
 const EMPTY_ROOM_MS = 30000;                                // delete a room nobody has joined for this long
 const LOBBY_KEEP_MS = 15 * 60 * 1000;                       // a code room waits this long for its creator to come back
 const STEP = 1 / 60;
-const SNAP_EVERY = 0.05;                                    // 20 snapshots per second
+const SNAP_EVERY = 1 / 30;                                  // 30 snapshots per second
+const SERVER_T0 = Date.now();                               // snapshots carry ms since this, so clients can pace them evenly
 const MAX_MSGS_PER_SEC = 120;
 const SEEN_SLACK = 10;                                      // how far a reported paddle may sit from the server's copy
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -68,7 +69,7 @@ function pack(test) {
 function snapshot(s, events) {
   const rem = (until) => Math.max(0, r2(until - s.t));
   return {
-    t: 'snap', st: r2(s.t), ph: s.phase, cd: r2(s.cd), se: r2(s.suddenEnd),
+    t: 'snap', sv: Date.now() - SERVER_T0, st: r2(s.t), ph: s.phase, cd: r2(s.cd), se: r2(s.suddenEnd),
     own: pack((i) => s.owner[i] === 1),
     fort: pack((i) => s.fortUntil[i] > s.t),
     pad: [r2(s.pad[0].y), r2(s.pad[1].y)],
@@ -176,7 +177,7 @@ class Room {
     }
     this.snapAcc += dt;
     if (this.snapAcc >= SNAP_EVERY || s.over) {
-      this.snapAcc = this.snapAcc >= 2 * SNAP_EVERY ? 0 : this.snapAcc - SNAP_EVERY;   // keep the remainder so the average stays at 20 Hz
+      this.snapAcc = this.snapAcc >= 2 * SNAP_EVERY ? 0 : this.snapAcc - SNAP_EVERY;   // keep the remainder so the average stays at 30 Hz
       const snap = snapshot(s, this.evq);
       if (wait) snap.wt = Math.ceil(wait / 1000);
       else if (resuming) snap.rs = 1;

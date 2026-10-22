@@ -35,7 +35,7 @@ function wander(c,until){ // fake paddle input following the ball nearest to own
   await sleep(2000);
   const rate=a.snaps/((a.last-a.first)/1000);
   console.log('snapshot rate A ~',rate.toFixed(1),'/s, avg bytes',Math.round(a.bytes/a.snaps),'max',a.maxBytes);
-  ok('snapshots ~20 Hz', rate>17&&rate<23);
+  ok('snapshots ~30 Hz', rate>27&&rate<33);
   ok('both players get snapshots', b.snaps>30);
   // wait for the short match (ROUND_TIME=6 + 3s countdown)
   for(let i=0;i<300&&!a.ended;i++) await sleep(100);   // room for 15s of sudden death after a tie

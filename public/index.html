@@ -129,7 +129,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
 (function () {
   'use strict';
   var Sim = window.TPSim, COLS = Sim.COLS, ROWS = Sim.ROWS, CFG = Sim.CFG, PADW = Sim.PADW, N = Sim.N;
-  var STEP = 1 / 60, RENDER_DELAY = 100, SEND_EVERY = 33;
+  var STEP = 1 / 60, SNAP_MS = 1000 / 30, SEND_EVERY = 33;
   var C = { ind: '#000', pink: '#fff', indBall: '#fff', pinkBall: '#000', tile: '#888', ink: '#000', fg: '#fff', grey: '#888' };
   var FONT = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
   var $ = function (id) { return document.getElementById(id); };
@@ -149,7 +149,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
   /* ---------- layout ---------- */
   function resize() {
     var r = canvas.getBoundingClientRect();
-    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    dpr = Math.min(window.devicePixelRatio || 1, 2);   // 3x screens look the same at 2x and cost half the pixels
     W = r.width; H = r.height;
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
     var topH = 46, botH = 62;
@@ -428,7 +428,8 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     } else if (m.t === 'snap') {
       if (mode !== 'online') { mode = 'online'; watch = false; hideAllOverlays(); localTarget = ROWS / 2; localPadY = ROWS / 2; view = newView(); }
       net.snaps.push({ rt: now, d: m });
-      if (net.snaps.length > 8) net.snaps.shift();
+      if (net.snaps.length > 12) net.snaps.shift();
+      clockSample(now, m.sv);
       if (m.ev && m.ev.length) handleEvents(m.ev, now);
       if (m.wt) ui.banner = { text: 'Opponent reconnecting ' + m.wt, team: -1, until: now + 400 };
       else if (m.rs) ui.banner = { text: 'Resuming', team: -1, until: now + 400 };
@@ -478,17 +479,37 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     v.turretUntil = [a.st + a.turret[0], a.st + a.turret[1]];
     v.share = a.share;
   }
+  /* Playback clock. Snapshots are stamped with the server's clock (sv, ms). We show the moment
+     sv = now - clock.off, where off is the smallest recent (arrival - sv) plus enough headroom for
+     this connection's jitter. Pacing by the server's clock instead of arrival times keeps the ball
+     moving evenly when packets arrive in bursts, and steady connections get a shorter delay. */
+  function clockSample(now, sv) {
+    var c = net.clock || (net.clock = { s: [], off: null, target: 0 });
+    c.s.push([now, now - sv]);
+    while (c.s.length && now - c.s[0][0] > 3000) c.s.shift();
+    var min = Infinity, i, ex = [];
+    for (i = 0; i < c.s.length; i++) min = Math.min(min, c.s[i][1]);
+    for (i = 0; i < c.s.length; i++) ex.push(c.s[i][1] - min);
+    ex.sort(function (p, q) { return p - q; });
+    var jitter = ex[Math.floor(ex.length * 0.95)] || 0;
+    c.target = min + SNAP_MS + Math.min(150, jitter) + 10;
+    if (c.off === null) c.off = c.target + 60;            // start safe, settle in over a couple of seconds
+  }
   function buildView(now, dt) {
-    if (!net || !net.snaps.length) return null;
-    var v = view || (view = newView()), snaps = net.snaps, rt = now - RENDER_DELAY;
+    if (!net || !net.snaps.length || !net.clock) return null;
+    var v = view || (view = newView()), snaps = net.snaps, c = net.clock;
+    // ease the delay toward its target slowly so playback speed barely changes
+    c.off += (c.target - c.off) * Math.min(1, dt * 0.6);
+    var rsv = now - c.off;
     var a = snaps[0], b = null, i;
     for (i = 0; i < snaps.length; i++) {
-      if (snaps[i].rt <= rt) a = snaps[i]; else { b = snaps[i]; break; }
+      if (snaps[i].d.sv <= rsv) a = snaps[i]; else { b = snaps[i]; break; }
     }
+    if (!b && rsv - a.d.sv > SNAP_MS) c.off += Math.min(30, rsv - a.d.sv - SNAP_MS);   // ran out of snapshots: wait a bit longer from now on
     if (net.viewSrc !== a) { applyBase(a.d, v); net.viewSrc = a; }
     var f = 0, age = 0;
-    if (b) f = Math.max(0, Math.min(1, (rt - a.rt) / (b.rt - a.rt)));
-    else age = Math.max(0, Math.min(0.15, (rt - a.rt) / 1000));
+    if (b && b !== a) f = Math.max(0, Math.min(1, (rsv - a.d.sv) / (b.d.sv - a.d.sv)));
+    else if (!b) age = Math.max(0, Math.min(0.1, (rsv - a.d.sv) / 1000));
     var ad = a.d, bd = b ? b.d : null;
     v.t = ad.st + (bd ? f * (bd.st - ad.st) : age);
     var bm = {};
@@ -605,6 +626,33 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
   function bx(c) { return Math.round(ox + c * cs); }
   function by(r) { return Math.round(oy + r * cs); }
 
+  // The territory only changes when cells flip, so draw it into its own canvas and reuse that
+  // image every frame until a cell or the layout changes.
+  var board = { canvas: document.createElement('canvas'), owner: new Uint8Array(N), key: '' };
+  function drawBoard(s) {
+    var w = bx(COLS) - bx(0), h = by(ROWS) - by(0), key = w + 'x' + h + '@' + dpr + ':' + bx(0) + ',' + by(0);
+    var same = board.key === key, i, r, c;
+    if (same) for (i = 0; i < N; i++) if (board.owner[i] !== s.owner[i]) { same = false; break; }
+    if (!same) {
+      var cv = board.canvas;
+      if (board.key !== key) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+      board.key = key; board.owner.set(s.owner);
+      var g = cv.getContext('2d');
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.fillStyle = C.ind; g.fillRect(0, 0, w, h);
+      g.fillStyle = C.pink;
+      for (r = 0; r < ROWS; r++) {
+        var run = -1;
+        for (c = 0; c <= COLS; c++) {
+          var isPink = c < COLS && s.owner[r * COLS + c] === 1;
+          if (isPink && run < 0) run = c;
+          if (!isPink && run >= 0) { g.fillRect(bx(run) - bx(0), by(r) - by(0), bx(c) - bx(run), by(r + 1) - by(r)); run = -1; }
+        }
+      }
+    }
+    ctx.drawImage(board.canvas, bx(0), by(0), w, h);
+  }
+
   function draw(now, s) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, W, H);
@@ -617,16 +665,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     var flip = (mode === 'online' && myTeam === 0) || mode === 'local';
     if (flip) { ctx.translate(2 * ox + COLS * cs, 0); ctx.scale(-1, 1); }
 
-    ctx.fillStyle = C.ind; ctx.fillRect(bx(0), by(0), bx(COLS) - bx(0), by(ROWS) - by(0));
-    ctx.fillStyle = C.pink;
-    for (r = 0; r < ROWS; r++) {
-      var run = -1;
-      for (c = 0; c <= COLS; c++) {
-        var isPink = c < COLS && s.owner[r * COLS + c] === 1;
-        if (isPink && run < 0) run = c;
-        if (!isPink && run >= 0) { ctx.fillRect(bx(run), by(r), bx(c) - bx(run), by(r + 1) - by(r)); run = -1; }
-      }
-    }
+    drawBoard(s);
     ctx.strokeStyle = C.fg; ctx.lineWidth = 1;
     ctx.strokeRect(bx(0) - 0.5, by(0) - 0.5, bx(COLS) - bx(0) + 1, by(ROWS) - by(0) + 1);
     ctx.strokeStyle = C.grey; ctx.lineWidth = 1.2;
@@ -860,9 +899,13 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     if (net && net.joined && mode !== 'online' && !(now - (net.lastPing || 0) < 1000)) { net.lastPing = now; send({ t: 'ping' }); }
     var showPause = canPause() && !paused && !ui.endAt;
     if (showPause !== ui.pauseShown) { ui.pauseShown = showPause; $('pauseBtn').classList.toggle('hidden', !showPause); }
-    draw(now, s);
+    if (debug) { var d0 = performance.now(); draw(now, s); debug.drawMs.push(performance.now() - d0); if (debug.drawMs.length > 600) debug.drawMs.shift(); }
+    else draw(now, s);
     requestAnimationFrame(frame);
   }
+
+  // open the page with #debug to let tests read what is on screen and how long drawing takes
+  var debug = location.hash === '#debug' ? (window.__tp = { drawMs: [], view: function () { return mode === 'online' ? view : sim; }, buffer: function () { var c = net && net.clock; if (!c) return null; var m = Infinity; c.s.forEach(function (q) { m = Math.min(m, q[1]); }); return c.off - m; } }) : null;
 
   resize();
   startDemo();
