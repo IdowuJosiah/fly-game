@@ -9,7 +9,8 @@
     puFirst: 8, puEvery: 12, puJitter: 3, puLife: 15, puMax: 2, leadGap: 0.20,
     catchupShare: 0.35, catchupHold: 5, catchupCooldown: 30, respawnDelay: 2.5, countdown: 3,
     fortifyTime: 10, tidalSpeed: 10, tidalHalf: 3, wormholeTime: 8,
-    turretTime: 6, turretEvery: 0.8, shotSpeed: 22, infilTime: 8, ghostTime: 5, tieMargin: 0.01
+    turretTime: 6, turretEvery: 0.8, shotSpeed: 22, infilTime: 8, ghostTime: 5, tieMargin: 0.01,
+    lagMax: 0.4
   };
   var TYPES = ['fortify', 'tidal', 'wormhole', 'turret', 'infiltrator', 'eclipse'];
   var NAMES = {
@@ -44,6 +45,7 @@
       lowFor: [0, 0], lastCatchup: [-99, -99], emptyFor: [0, 0],
       nextTile: CFG.puFirst, share: [0.5, 0.5], counts: [N / 2, N / 2], events: [],
       bots: [null, null],
+      lagComp: [null, null],        // online only: where the player saw their paddle at a given time
       stats: { saves: [0, 0], misses: [0, 0], flips: [0, 0], tiles: [0, 0], catchups: [0, 0] }
     };
     var b = COLS / 2;
@@ -133,22 +135,61 @@
     b.y = ny;
   }
 
+  function save(s, b, k, padY) {
+    var half = CFG.paddleH / 2 + CFG.paddleTol;
+    deflect(s, b, { y: padY }, half, k === 0 ? 1 : -1);
+    b.x = k === 0 ? PADW + b.r : COLS - PADW - b.r;
+    s.stats.saves[k]++;
+    s.events.push({ type: 'save', x: b.x, y: b.y, team: k });
+  }
+  function miss(s, b, k, at) {
+    b.dead = true;
+    s.stats.misses[k]++;
+    s.events.push({ type: 'miss', x: k === 0 ? 0 : COLS, y: b.y, team: k, at: Math.round((at === undefined ? s.t : at) * 1000) / 1000 });
+  }
+
   function ownWall(s, b, k) {
-    var dir = k === 0 ? 1 : -1;
     var dist = k === 0 ? b.x - b.r : COLS - (b.x + b.r);
     if (dist > PADW) return;
-    var pad = s.pad[k], half = CFG.paddleH / 2 + CFG.paddleTol;
-    if (Math.abs(b.y - pad.y) <= half) {
-      deflect(s, b, pad, half, dir);
+    var half = CFG.paddleH / 2 + CFG.paddleTol;
+    if (Math.abs(b.y - s.pad[k].y) <= half) { save(s, b, k, s.pad[k].y); return; }
+    if (s.lagComp[k]) {
+      // Online the player sees the ball a little late, so hold it at the paddle until we know
+      // where their paddle was on their screen at this moment.
+      b.held = { t: s.t, y: b.y };
       b.x = k === 0 ? PADW + b.r : COLS - PADW - b.r;
-      s.stats.saves[k]++;
-      s.events.push({ type: 'save', x: b.x, y: b.y, team: k });
       return;
     }
-    if (dist <= 0) {
-      b.dead = true;
-      s.stats.misses[k]++;
-      s.events.push({ type: 'miss', x: k === 0 ? 0 : COLS, y: b.y, team: k });
+    if (dist <= 0) miss(s, b, k);
+  }
+
+  function resolveHeld(s, b, dt) {
+    var k = b.team, h = b.held, half = CFG.paddleH / 2 + CFG.paddleTol;
+    var waited = s.t - h.t, seen = s.lagComp[k] ? s.lagComp[k](h.t) : null, padY = null;
+    if (Math.abs(h.y - s.pad[k].y) <= half) padY = s.pad[k].y;
+    else if (seen && !seen.ready && waited < CFG.lagMax) return;
+    else if (seen && Math.abs(h.y - seen.y) <= half) padY = seen.y;
+    b.held = null; b.y = h.y;
+    if (padY === null) { miss(s, b, k, h.t); return; }
+    save(s, b, k, padY);
+    // catch the ball up on the time it spent waiting
+    for (var n = Math.min(30, Math.round(waited / dt)); n > 0 && !b.dead; n--) advance(s, b, dt);
+  }
+
+  function advance(s, b, dt) {
+    if (b.cd > 0) b.cd -= dt;
+    moveBall(s, b, dt);
+    if (b.y < b.r) { b.y = b.r; b.vy = Math.abs(b.vy); }
+    else if (b.y > ROWS - b.r) { b.y = ROWS - b.r; b.vy = -Math.abs(b.vy); }
+    var towardOwn = b.team === 0 ? b.vx < 0 : b.vx > 0;
+    if (towardOwn) ownWall(s, b, b.team);
+    else if (b.team === 0 && b.x + b.r >= COLS) { b.x = COLS - b.r; b.vx = -Math.abs(b.vx); }
+    else if (b.team === 1 && b.x - b.r <= 0) { b.x = b.r; b.vx = Math.abs(b.vx); }
+    if (b.dead || b.held) return;
+    if (s.portals && b.cd <= 0) {
+      var pa = s.portals.a, pb = s.portals.b;
+      if (Math.hypot(b.x - pa.x, b.y - pa.y) < 0.8) { b.x = pb.x; b.y = pb.y; b.cd = 0.7; s.events.push({ type: 'portal', x: pb.x, y: pb.y }); }
+      else if (Math.hypot(b.x - pb.x, b.y - pb.y) < 0.8) { b.x = pa.x; b.y = pa.y; b.cd = 0.7; s.events.push({ type: 'portal', x: pa.x, y: pa.y }); }
     }
   }
 
@@ -299,20 +340,8 @@
       var b = s.balls[i];
       var sp0 = Math.hypot(b.vx, b.vy) || 1, tg = CFG.ballSpeed * mul;
       b.vx *= tg / sp0; b.vy *= tg / sp0;
-      if (b.cd > 0) b.cd -= dt;
-      moveBall(s, b, dt);
-      if (b.y < b.r) { b.y = b.r; b.vy = Math.abs(b.vy); }
-      else if (b.y > ROWS - b.r) { b.y = ROWS - b.r; b.vy = -Math.abs(b.vy); }
-      var towardOwn = b.team === 0 ? b.vx < 0 : b.vx > 0;
-      if (towardOwn) ownWall(s, b, b.team);
-      else if (b.team === 0 && b.x + b.r >= COLS) { b.x = COLS - b.r; b.vx = -Math.abs(b.vx); }
-      else if (b.team === 1 && b.x - b.r <= 0) { b.x = b.r; b.vx = Math.abs(b.vx); }
-      if (b.dead) continue;
-      if (s.portals && b.cd <= 0) {
-        var pa = s.portals.a, pb = s.portals.b;
-        if (Math.hypot(b.x - pa.x, b.y - pa.y) < 0.8) { b.x = pb.x; b.y = pb.y; b.cd = 0.7; s.events.push({ type: 'portal', x: pb.x, y: pb.y }); }
-        else if (Math.hypot(b.x - pb.x, b.y - pb.y) < 0.8) { b.x = pa.x; b.y = pa.y; b.cd = 0.7; s.events.push({ type: 'portal', x: pa.x, y: pa.y }); }
-      }
+      if (b.held) resolveHeld(s, b, dt);
+      else advance(s, b, dt);
     }
     if (s.balls.some(function (q) { return q.dead; })) s.balls = s.balls.filter(function (q) { return !q.dead; });
 

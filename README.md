@@ -28,6 +28,7 @@ server.js          HTTP + WebSocket server, rooms, 60 Hz simulation, 20 Hz snaps
 shared/sim.js      Game rules (pure functions, no network or browser code) and every tunable constant
 public/index.html  Client: drawing, input, bot matches, online play
 test/nettest.js    Scripted two-player test of the server
+test/lagtest.js    Checks that no catch a player saw is lost to lag (LAG=ms one way)
 ```
 
 ## How the networking works
@@ -35,6 +36,7 @@ test/nettest.js    Scripted two-player test of the server
 - The server steps the simulation at 60 Hz and sends a snapshot to both players 20 times a second (about 580 bytes each, roughly 12 KB/s per player).
 - Clients send only where their paddle should be (`{t:"input", y}`), up to about 30 times a second. The server clamps the paddle speed, ignores invalid values, and drops connections that send more than 120 messages a second.
 - Your own paddle is drawn from local input so it never feels delayed. Balls and the other paddle are drawn about 100 ms behind the latest snapshot and interpolated, which hides network jitter.
+- Because of that gap, the server judges catches the way the player saw them. Each input also carries where the paddle was drawn (`py`) and the moment the screen was showing (`vt`). When the server's own paddle would miss, it holds the ball at the paddle for up to 0.4 s until that report arrives, saves it if the player's paddle covered the ball, and then moves the ball on to make up the lost time. `test/lagtest.js` checks this with simulated players behind a laggy connection.
 - A player who disconnects has 10 seconds to rejoin (the page retries automatically and keeps a session token), which covers a brief network drop. After that the match ends and the player who stayed wins. Choosing **Back to menu** mid-match ends it straight away.
 - **Random opponent** pairs players first come, first served: the first searcher waits in a public room and the next searcher joins it. Private rooms made with **Create room** are never used for random matches.
 - The round length is sent to clients when they join, so changing it on the server is enough.
@@ -45,7 +47,7 @@ test/nettest.js    Scripted two-player test of the server
 | --- | --- | --- |
 | client | `create` / `join {code}` / `rejoin {code, token}` | Enter a room |
 | client | `find` | Join the next random opponent, or wait for one |
-| client | `input {y}` | Paddle target in board cells (0 to 40) |
+| client | `input {y, py, vt}` | Paddle target in board cells (0 to 40), where the paddle is drawn, and the sim time on screen |
 | client | `rematch` / `leave` | Ask for another match, or leave |
 | server | `room {code, team, token, players, pub, cfg}` | You are in a room, as team 0 (black, left) or 1 (white, right). `pub` is true for a random match |
 | server | `snap {...}` | Full state: board bits, balls, paddles, power-ups, timer, events |

@@ -21,6 +21,7 @@ const EMPTY_ROOM_MS = 30000;                                // delete a room nob
 const STEP = 1 / 60;
 const SNAP_EVERY = 0.05;                                    // 20 snapshots per second
 const MAX_MSGS_PER_SEC = 120;
+const SEEN_SLACK = 10;                                      // how far a reported paddle may sit from the server's copy
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 /* ---------- static files (only these routes are served) ---------- */
@@ -99,11 +100,25 @@ class Room {
   start() {
     this.stopTimer();
     this.sim = Sim.createSim(crypto.randomInt(0, 2 ** 32), [null, null]);
+    this.sim.lagComp = [0, 1].map((k) => (t) => this.seenPaddle(k, t));
     this.state = 'playing';
     this.acc = 0; this.snapAcc = 0; this.evq = []; this.last = Date.now(); this.forfeit = -1;
-    for (const p of this.players) if (p) p.rematch = false;
+    for (const p of this.players) if (p) { p.rematch = false; p.seen = []; }
     this.broadcast({ t: 'restart' });
     this.timer = setInterval(() => this.tick(), 16);
+  }
+  // Where player k's paddle was on their own screen when it showed sim time t.
+  // ready is false until a report for that moment has arrived.
+  seenPaddle(k, t) {
+    const p = this.players[k];
+    if (!p || !p.connected || !p.seen || !p.seen.length) return null;
+    const h = p.seen, last = h[h.length - 1];
+    if (last[0] < t) return { ready: false, y: last[1] };
+    let i = 0;
+    while (h[i][0] < t) i++;
+    if (i === 0) return { ready: true, y: h[0][1] };
+    const a = h[i - 1], b = h[i], f = (t - a[0]) / (b[0] - a[0] || 1);
+    return { ready: true, y: a[1] + (b[1] - a[1]) * f };
   }
   stopTimer() { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
   checkForfeit(now) {                // a player gone longer than the grace period loses the match
@@ -223,6 +238,15 @@ wss.on('connection', (ws) => {
       if (!room || !room.sim || room.state !== 'playing') return;
       if (typeof msg.y !== 'number' || !isFinite(msg.y)) return;
       room.sim.pad[m.team].target = clamp(msg.y, 0, ROWS);
+      // where the paddle was drawn on the player's screen, and the sim time that screen showed
+      const p = room.players[m.team], s = room.sim;
+      if (typeof msg.py === 'number' && isFinite(msg.py) && typeof msg.vt === 'number' && isFinite(msg.vt) && msg.vt <= s.t + 0.1) {
+        const h = p.seen || (p.seen = []);
+        if (h.length && msg.vt < h[h.length - 1][0]) return;
+        const py = clamp(msg.py, s.pad[m.team].y - SEEN_SLACK, s.pad[m.team].y + SEEN_SLACK);   // stay near the real paddle
+        h.push([msg.vt, clamp(py, CFG.paddleH / 2, ROWS - CFG.paddleH / 2)]);
+        if (h.length > 90) h.shift();
+      }
       return;
     }
     if (msg.t === 'create') { createRoom(ws, false); return; }

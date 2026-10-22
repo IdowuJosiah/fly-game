@@ -239,7 +239,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
   function openNet(firstMsg) {
     closeNet();
     $('onlineMsg').textContent = 'Connecting';
-    net = { ws: null, first: firstMsg, code: '', token: '', team: 0, snaps: [], over: false, closing: false, retries: 0, viewSrc: null, lastSend: 0, lastSent: -1, endMsg: null, joined: false };
+    net = { ws: null, first: firstMsg, code: '', token: '', team: 0, snaps: [], over: false, closing: false, retries: 0, viewSrc: null, lastSend: 0, endMsg: null, joined: false };
     connect();
   }
   function connect() {
@@ -610,8 +610,11 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
       var dir = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
       if (dir) localTarget = Math.max(0, Math.min(ROWS, localTarget + dir * 28 * dt));
       s = buildView(now, dt) || sim;
-      if (net && now - net.lastSend >= SEND_EVERY && (Math.abs(localTarget - net.lastSent) > 0.02 || now - net.lastSend > 500)) {
-        net.lastSend = now; net.lastSent = localTarget; send({ t: 'input', y: Math.round(localTarget * 100) / 100 });
+      if (net && view && now - net.lastSend >= SEND_EVERY) {
+        // also report where the paddle is drawn and what moment the screen shows, so the server
+        // can judge catches the way the player saw them
+        net.lastSend = now;
+        send({ t: 'input', y: Math.round(localTarget * 100) / 100, py: Math.round(localPadY * 100) / 100, vt: Math.round(view.t * 1000) / 1000 });
       }
       if (net && net.over && ui.endAt && now >= ui.endAt) { ui.endAt = 0; showEnd({}); }
     } else if (sim) {

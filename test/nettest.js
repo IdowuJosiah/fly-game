@@ -38,7 +38,7 @@ function wander(c,until){ // fake paddle input following the ball nearest to own
   ok('snapshots ~20 Hz', rate>17&&rate<23);
   ok('both players get snapshots', b.snaps>30);
   // wait for the short match (ROUND_TIME=6 + 3s countdown)
-  for(let i=0;i<150&&!a.ended;i++) await sleep(100);
+  for(let i=0;i<300&&!a.ended;i++) await sleep(100);   // room for 15s of sudden death after a tie
   ok('match ends with a result', !!a.ended && !!b.ended && a.ended.winner===b.ended.winner);
   console.log('winner',a.ended&&a.ended.winner,'share',a.ended&&a.ended.share,'len',a.ended&&a.ended.tm,'events seen',JSON.stringify(a.events));
   // rematch
