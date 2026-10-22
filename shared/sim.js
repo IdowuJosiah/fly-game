@@ -48,12 +48,8 @@
       lagComp: [null, null],        // online only: where the player saw their paddle at a given time
       stats: { saves: [0, 0], misses: [0, 0], flips: [0, 0], tiles: [0, 0], catchups: [0, 0] }
     };
-    var b = COLS / 2;
-    for (var r = 0; r < ROWS; r++) {
-      var d = s.rng();
-      b += d < 0.25 ? -1 : (d > 0.75 ? 1 : 0);
-      b = clamp(b, COLS / 2 - 2, COLS / 2 + 2);
-      for (var c = 0; c < COLS; c++) s.owner[r * COLS + c] = c < b ? 0 : 1;
+    for (var r = 0; r < ROWS; r++) {        // each side starts with exactly half the board
+      for (var c = 0; c < COLS; c++) s.owner[r * COLS + c] = c < COLS / 2 ? 0 : 1;
     }
     for (var k = 0; k < 2; k++) {
       for (var i = 0; i < CFG.ballsStart; i++) {
