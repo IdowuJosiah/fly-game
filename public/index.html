@@ -153,7 +153,9 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     W = r.width; H = r.height;
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
     var topH = 46, botH = 62;
-    cs = Math.max(8, Math.min((W - 16) / COLS, (H - topH - botH - 8) / ROWS));
+    // leave a strip down each side so a thumb can rest there without covering the paddle
+    var side = Math.max(28, Math.round(W * 0.08));
+    cs = Math.max(8, Math.min((W - side * 2) / COLS, (H - topH - botH - 24) / ROWS));
     ox = (W - COLS * cs) / 2;
     oy = topH + (H - topH - botH - ROWS * cs) / 2;
   }
