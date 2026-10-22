@@ -37,6 +37,7 @@ test/lagtest.js    Checks that no catch a player saw is lost to lag, and that th
 - Clients send only where their paddle should be (`{t:"input", y}`), up to about 30 times a second. The server clamps the paddle speed, ignores invalid values, and drops connections that send more than 120 messages a second.
 - Your own paddle is drawn from local input so it never feels delayed. Balls and the other paddle are drawn about 100 ms behind the latest snapshot and interpolated, which hides network jitter.
 - Because of that gap, the server judges catches the way the player saw them. Each input also carries where the paddle was drawn (`py`) and the moment the screen was showing (`vt`). When the server's own paddle would miss, it waits up to 0.4 s for that report and saves the ball if the player's paddle covered it. While it waits, snapshots show the ball bouncing off the paddle the player most likely had (or carrying on into the wall), so nobody sees it stop, and once the call is made the ball glides into its real position over 0.15 s. `test/lagtest.js` checks this with simulated players behind a laggy connection.
+- A room made with **Create room** stays open for 15 minutes if its creator's connection drops (for example while they switch apps to send the code); only **Cancel** closes it. Pages ping once a second in the room screen, and a match only starts when both players are connected and pinging, so a friend who joins while the creator is away sees "waiting for host" until they are back.
 - If a player disconnects, or sends nothing for 2 seconds, the match pauses for both players and the other one sees a countdown. The page reconnects automatically with a session token; back within 5 seconds, the match resumes after a 1 second hold. Otherwise it ends and the player who stayed wins. Choosing **Back to menu** mid-match ends it straight away.
 - **Random opponent** pairs players first come, first served: the first searcher waits in a public room and the next searcher joins it. Private rooms made with **Create room** are never used for random matches.
 - The round length is sent to clients when they join, so changing it on the server is enough.
@@ -49,6 +50,7 @@ test/lagtest.js    Checks that no catch a player saw is lost to lag, and that th
 | client | `find` | Join the next random opponent, or wait for one |
 | client | `input {y, py, vt}` | Paddle target in board cells (0 to 40), where the paddle is drawn, and the sim time on screen |
 | client | `rematch` / `leave` | Ask for another match, or leave |
+| client | `ping` | Still here, sent every second from the room screen |
 | server | `room {code, team, token, players, pub, cfg}` | You are in a room, as team 0 (black, left) or 1 (white, right). `pub` is true for a random match |
 | server | `snap {...}` | Full state: board bits, balls, paddles, power-ups, timer, events |
 | server | `end {winner, share, tm, stats, forfeit}` | Match over. `forfeit` is the team that dropped out, or -1 |

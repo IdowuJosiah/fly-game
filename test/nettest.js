@@ -79,6 +79,27 @@ function wander(c,until){ // fake paddle input following the ball nearest to own
   const p5=client('P5'); await p5.open; p5.send({t:'find'}); await sleep(150);
   ok('cancelled search is not matched', p5.room&&p5.room.players===1&&p5.room.code!==firstCode&&p3.restarts===0);
   for(const x of [p1,p2,p3,p4,p5]) x.ws.close();
+  // the room creator leaves the app to send the code: the code must keep working
+  const h=client('H'); await h.open; h.send({t:'create'}); await sleep(150);
+  const hcode=h.room.code, htok=h.room.token; h.ws.terminate(); await sleep(400);
+  const f=client('F'); await f.open; f.send({t:'join',code:hcode}); await sleep(300);
+  ok('code still works after the creator drops', f.room&&f.room.code===hcode&&f.errors.length===0);
+  ok('friend waits for the creator', f.room&&f.room.wait===true&&f.restarts===0);
+  const h2=client('H2'); await h2.open; h2.send({t:'rejoin',code:hcode,token:htok}); await sleep(400);
+  ok('match starts when the creator is back', h2.restarts===1&&f.restarts===1);
+  for(const x of [f,h2]) x.ws.close();
+  // creator still connected but silent (phone in the background): friend waits, pings resume the start
+  const q=client('Q'); await q.open; q.send({t:'create'}); await sleep(2300);
+  const g=client('G'); await g.open; g.send({t:'join',code:q.room.code}); await sleep(300);
+  ok('silent creator does not start the match', g.room&&g.room.wait===true&&g.restarts===0);
+  q.send({t:'ping'}); await sleep(300);
+  ok('creator pinging again starts it', q.restarts===1&&g.restarts===1);
+  for(const x of [q,g]) x.ws.close();
+  // pressing cancel really closes the room
+  const k=client('K'); await k.open; k.send({t:'create'}); await sleep(150); const kcode=k.room.code; k.send({t:'leave'}); await sleep(150);
+  const j=client('J'); await j.open; j.send({t:'join',code:kcode}); await sleep(200);
+  ok('cancelled room is closed', j.errors[0]==='Room not found');
+  for(const x of [k,j]) x.ws.close();
   clearInterval(ia); a.ws.close(); c3.ws.close(); await sleep(200);
   process.exit(0);
 })();

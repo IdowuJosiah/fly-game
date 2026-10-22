@@ -20,6 +20,7 @@ const GRACE_MS = Number(process.env.GRACE_MS) || 5000;      // the match pauses 
 const STALE_MS = 2000;                                      // no messages for this long counts as dropped (clients send ~30 a second)
 const RESUME_MS = 1000;                                     // short hold after a player comes back, so both are ready
 const EMPTY_ROOM_MS = 30000;                                // delete a room nobody has joined for this long
+const LOBBY_KEEP_MS = 15 * 60 * 1000;                       // a code room waits this long for its creator to come back
 const STEP = 1 / 60;
 const SNAP_EVERY = 0.05;                                    // 20 snapshots per second
 const MAX_MSGS_PER_SEC = 120;
@@ -84,6 +85,9 @@ function snapshot(s, events) {
 }
 
 /* ---------- rooms ---------- */
+// connected and heard from recently (pages send a ping every second while in the room screen,
+// and stop when the phone puts them in the background)
+function live(p) { return !!p && p.connected && Date.now() - (p.lastSeen || 0) <= STALE_MS; }
 class Room {
   constructor(code, pub) {
     this.code = code;
@@ -185,6 +189,14 @@ class Room {
       this.broadcast(this.endMsg());
     }
   }
+  // start once both players are here; a friend may join while the creator is away sharing the code
+  maybeStart() {
+    if (this.state === 'lobby' && this.players.every(live)) {
+      this.broadcast({ t: 'lobby', players: 2 });
+      this.start();
+    }
+  }
+  waitingForHost() { return this.state === 'lobby' && !!this.players[1] && !live(this.players[0]); }
   destroy() { this.stopTimer(); rooms.delete(this.code); if (waiting === this) waiting = null; }
 }
 
@@ -192,6 +204,15 @@ class Room {
 setInterval(() => {
   const now = Date.now();
   for (const room of rooms.values()) {
+    if (room.state === 'lobby' && !room.pub) {         // code rooms wait for their creator to come back
+      const host = room.players[0];
+      if (host && !host.connected && now - host.goneAt > LOBBY_KEEP_MS) {
+        const friend = room.players[1];
+        if (friend) send(friend.ws, { t: 'error', msg: 'Room expired', fatal: true });
+        room.destroy();
+      }
+      continue;
+    }
     if (room.connectedCount() === 0) {
       const gone = room.players.reduce((m, p) => (p ? Math.max(m, p.goneAt || room.createdAt) : m), room.createdAt);
       if (now - gone > EMPTY_ROOM_MS) room.destroy();
@@ -209,10 +230,13 @@ function leaveRoom(ws, voluntary) {
   if (!p || p.ws !== ws) return;
   p.connected = false; p.goneAt = Date.now();
   const other = room.players[1 - team];
-  if (room.state === 'lobby') {                      // nobody to play yet, so the room ends
-    if (!other) { room.destroy(); return; }
-    room.players[team] = null;
-    return;
+  if (room.state === 'lobby') {
+    if (team === 1) { if (voluntary) room.players[1] = null; return; }
+    if (voluntary || room.pub) {                     // cancelled, or a random search: the room ends
+      if (other) send(other.ws, { t: 'error', msg: 'Room closed', fatal: true });
+      room.destroy();
+    }
+    return;                                          // creator stepped away, e.g. to send the code: keep the room
   }
   if (voluntary) {                                   // left on purpose: no grace period
     p.goneAt = 0;
@@ -227,7 +251,7 @@ function createRoom(ws, pub) {
   if (!code) { send(ws, { t: 'error', msg: 'Server busy' }); return null; }
   const room = new Room(code, pub);
   const token = crypto.randomBytes(8).toString('hex');
-  room.players[0] = { ws, token, connected: true, goneAt: 0, rematch: false };
+  room.players[0] = { ws, token, connected: true, goneAt: 0, lastSeen: Date.now(), rematch: false };
   rooms.set(code, room);
   m.room = room; m.team = 0;
   send(ws, { t: 'room', code, team: 0, token, players: 1, pub: room.pub, cfg: { roundTime: CFG.roundTime } });
@@ -237,11 +261,10 @@ function joinRoom(ws, room) {
   const m = ws.meta;
   if (m.room) leaveRoom(ws, true);
   const token = crypto.randomBytes(8).toString('hex');
-  room.players[1] = { ws, token, connected: true, goneAt: 0, rematch: false };
+  room.players[1] = { ws, token, connected: true, goneAt: 0, lastSeen: Date.now(), rematch: false };
   m.room = room; m.team = 1;
-  send(ws, { t: 'room', code: room.code, team: 1, token, players: 2, pub: room.pub, cfg: { roundTime: CFG.roundTime } });
-  room.broadcast({ t: 'lobby', players: 2 });
-  room.start();
+  send(ws, { t: 'room', code: room.code, team: 1, token, players: 2, pub: room.pub, wait: room.waitingForHost(), cfg: { roundTime: CFG.roundTime } });
+  room.maybeStart();
 }
 
 wss.on('connection', (ws) => {
@@ -258,6 +281,7 @@ wss.on('connection', (ws) => {
     try { msg = JSON.parse(raw); } catch (e) { return; }
     if (!msg || typeof msg.t !== 'string') return;
 
+    if (msg.t === 'ping') { if (m.room && m.room.state === 'lobby') m.room.maybeStart(); return; }
     if (msg.t === 'input') {
       const room = m.room;
       if (!room || !room.sim || room.state !== 'playing') return;
@@ -286,7 +310,7 @@ wss.on('connection', (ws) => {
       const code = String(msg.code || '').toUpperCase().slice(0, 4);
       const room = rooms.get(code);
       if (!room) { send(ws, { t: 'error', msg: 'Room not found' }); return; }
-      if (room.players[1] || room.state !== 'lobby') { send(ws, { t: 'error', msg: 'Room full' }); return; }
+      if ((room.players[1] && room.players[1].connected) || room.state !== 'lobby') { send(ws, { t: 'error', msg: 'Room full' }); return; }
       if (waiting === room) waiting = null;
       joinRoom(ws, room);
       return;
@@ -300,9 +324,10 @@ wss.on('connection', (ws) => {
       p.ws = ws; p.connected = true; p.goneAt = 0; p.lastSeen = Date.now(); p.stale = false;
       if (room.state === 'playing') room.resumeAt = Date.now() + RESUME_MS;
       m.room = room; m.team = team;
-      send(ws, { t: 'room', code: room.code, team, token: p.token, players: room.count(), pub: room.pub, cfg: { roundTime: CFG.roundTime } });
+      send(ws, { t: 'room', code: room.code, team, token: p.token, players: room.count(), pub: room.pub, wait: room.waitingForHost(), cfg: { roundTime: CFG.roundTime } });
       const other = room.players[1 - team];
-      if (other) send(other.ws, { t: 'opp', status: 'back' });
+      if (other && room.state !== 'lobby') send(other.ws, { t: 'opp', status: 'back' });
+      room.maybeStart();
       if (room.state === 'ended') send(ws, room.endMsg());
       return;
     }

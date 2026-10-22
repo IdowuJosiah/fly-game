@@ -392,20 +392,37 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     ws.onclose = function () {
       if (!net || net.closing) return;
       if (!net.joined) { $('onlineMsg').textContent = 'Server unreachable'; net = null; return; }
+      // still in the room screen (e.g. the creator went off to share the code): keep trying quietly
+      if (mode !== 'online') { net.retryTimer = setTimeout(connect, 2000); return; }
       if (net.retries < 10) { net.retries++; ui.banner = { text: 'Reconnecting', team: -1, until: performance.now() + 1500 }; net.retryTimer = setTimeout(connect, net.retries === 1 ? 250 : 800); }
       else { ui.banner = { text: 'Connection lost', team: -1, until: performance.now() + 4000 }; showEnd({ lost: true }); }
     };
   }
+  // Phones often drop the connection while the page is in the background. Coming back, reconnect
+  // straight away instead of waiting for the old connection to time out.
+  var hiddenAt = 0;
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (!net || !net.joined || net.closing) return;
+    if (net.ws.readyState !== 1 || Date.now() - hiddenAt > 2000) {
+      clearTimeout(net.retryTimer);
+      var old = net.ws; old.onclose = null; old.onmessage = null;
+      try { old.close(); } catch (e) {}
+      net.retries = 0; connect();
+    }
+  });
   function onNet(m) {
     var now = performance.now();
     if (m.t === 'room') {
       if (m.cfg && m.cfg.roundTime) CFG.roundTime = m.cfg.roundTime;
       net.joined = true; net.code = m.code; net.token = m.token; net.team = m.team; myTeam = m.team; viewTeam = m.team;
-      if (m.players < 2) {
+      net.pub = !!m.pub;
+      if (m.players < 2 || m.wait) {
+        var showCode = !m.pub && !m.wait;
         hide('online'); $('roomCode').textContent = m.code;
-        $('lobbyTitle').textContent = m.pub ? 'searching' : 'room';
+        $('lobbyTitle').textContent = m.wait ? 'waiting for host' : (m.pub ? 'searching' : 'room');
         $('copyCode').textContent = 'Copy';
-        $('roomCode').style.display = $('copyCode').style.display = m.pub ? 'none' : '';
+        $('roomCode').style.display = $('copyCode').style.display = showCode ? '' : 'none';
         show('lobby');
       }
     } else if (m.t === 'snap') {
@@ -427,6 +444,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
       if (m.status === 'rematch') $('resultMsg').textContent = 'Opponent wants a rematch';
       if (txt) ui.banner = { text: txt, team: -1, until: now + 2500 };
     } else if (m.t === 'error') {
+      if (m.fatal && net && net.pub && mode !== 'online') { openNet({ t: 'find' }); return; }   // search again
       if (m.fatal && net) { closeNet(); toMenu(); }
       $('onlineMsg').textContent = m.msg;
       if (net && !net.joined) { net.closing = true; try { net.ws.close(); } catch (e) {} net = null; }
@@ -838,6 +856,8 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     }
     if (ui.shake > 0) ui.shake = Math.max(0, ui.shake - dt);
     phaseSounds(s);
+    // in the room screen, tell the server we are still here (this stops when the page is in the background)
+    if (net && net.joined && mode !== 'online' && !(now - (net.lastPing || 0) < 1000)) { net.lastPing = now; send({ t: 'ping' }); }
     var showPause = canPause() && !paused && !ui.endAt;
     if (showPause !== ui.pauseShown) { ui.pauseShown = showPause; $('pauseBtn').classList.toggle('hidden', !showPause); }
     draw(now, s);
