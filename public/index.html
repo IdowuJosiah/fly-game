@@ -58,6 +58,8 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
   position: absolute; top: 8px; right: 8px; z-index: 5; width: auto; padding: 6px 8px;
   background: transparent; border: 0; color: var(--muted); font-size: 12px;
 }
+.pausebtn { right: auto; left: 8px; }
+.snd.hidden { display: none; }
 .msg { min-height: 18px; margin: 8px 0; font-size: 12px; color: var(--muted); }
 </style>
 </head>
@@ -65,6 +67,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
 <div id="stage">
   <canvas id="c" aria-label="Game board"></canvas>
   <button id="snd" class="snd" aria-pressed="true">sound on</button>
+  <button id="pauseBtn" class="snd pausebtn hidden">pause</button>
 
   <div id="menu" class="overlay">
     <div class="card">
@@ -77,7 +80,6 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
         <label><input type="radio" name="lvl" value="hard"><span>hard</span></label>
       </div>
       <button id="start" class="ghost">Play bot</button>
-      <button id="watch" class="ghost">Watch</button>
     </div>
   </div>
 
@@ -100,6 +102,14 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
       <div class="codebox" id="roomCode">----</div>
       <button id="copyCode">Copy</button>
       <button id="lobbyCancel" class="ghost">Cancel</button>
+    </div>
+  </div>
+
+  <div id="pause" class="overlay hidden">
+    <div class="card">
+      <h1>paused</h1>
+      <button id="resume">Resume</button>
+      <button id="pauseMenu" class="ghost">Menu</button>
     </div>
   </div>
 
@@ -128,7 +138,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
 
   var W = 0, H = 0, dpr = 1, cs = 10, ox = 0, oy = 0;
   var mode = 'menu';              // menu (demo behind the overlay) | local | online
-  var sim = null, watch = false, level = 'medium';
+  var sim = null, watch = false, level = 'medium', paused = false;
   var myTeam = 0, viewTeam = 0;
   var ui = { banner: null, fx: [], shake: 0, endAt: 0, demoRestart: 0, parts: [], trails: {}, padFlash: [0, 0], lastCount: 0, lastPhase: '' };
   var keys = { up: false, down: false };
@@ -152,22 +162,30 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
   /* ---------- screens ---------- */
   function show(id) { $(id).classList.remove('hidden'); }
   function hide(id) { $(id).classList.add('hidden'); }
-  function hideAllOverlays() { ['menu', 'online', 'lobby', 'result'].forEach(hide); }
+  function hideAllOverlays() { ['menu', 'online', 'lobby', 'result', 'pause'].forEach(hide); }
   function seed() { return (Math.random() * 4294967296) >>> 0; }
 
   function startDemo() {
     sim = Sim.createSim(seed(), ['medium', 'medium']);
     ui.fx = []; ui.banner = null; mode = 'menu'; watch = true; ui.demoRestart = 0; viewTeam = 0;
   }
-  function startLocal(isWatch) {
+  function startLocal() {
     closeNet();
-    watch = isWatch; myTeam = 0; viewTeam = 0;
-    sim = Sim.createSim(seed(), [isWatch ? level : null, level]);
+    watch = false; myTeam = 0; viewTeam = 0; setPaused(false);
+    sim = Sim.createSim(seed(), [null, level]);
     ui.fx = []; ui.banner = null; ui.endAt = 0; ui.shake = 0; ui.parts = []; ui.trails = {}; ui.lastPhase = '';
     mode = 'local';
     hideAllOverlays();
   }
+  // only bot matches can pause; online the server keeps running
+  function canPause() { return mode === 'local' && sim && !sim.over; }
+  function setPaused(p) {
+    paused = !!p && canPause();
+    if (paused) show('pause'); else hide('pause');
+    keys.up = keys.down = false;
+  }
   function toMenu() {
+    setPaused(false);
     closeNet();
     hideAllOverlays(); show('menu');
     startDemo();
@@ -286,7 +304,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
   function setTargetFromPointer(clientY) {
     var r = canvas.getBoundingClientRect();
     var y = Math.max(0, Math.min(ROWS, (clientY - r.top - oy) / cs));
-    if (mode === 'local' && !watch) sim.pad[0].target = y;
+    if (mode === 'local' && !paused) sim.pad[0].target = y;
     else if (mode === 'online') localTarget = y;
   }
   canvas.addEventListener('pointerdown', function (e) {
@@ -302,7 +320,10 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     var k = e.key;
     if (k === 'ArrowUp' || k === 'w' || k === 'W') { keys.up = true; e.preventDefault(); }
     if (k === 'ArrowDown' || k === 's' || k === 'S') { keys.down = true; e.preventDefault(); }
+    if ((k === 'Escape' || k === 'p' || k === 'P') && canPause()) { setPaused(!paused); e.preventDefault(); }
   });
+  // pause a bot match if the player switches away from the tab
+  document.addEventListener('visibilitychange', function () { if (document.hidden && canPause()) setPaused(true); });
   window.addEventListener('keyup', function (e) {
     var k = e.key;
     if (k === 'ArrowUp' || k === 'w' || k === 'W') keys.up = false;
@@ -313,8 +334,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
   document.querySelectorAll('input[name="lvl"]').forEach(function (el) {
     el.addEventListener('change', function () { level = el.value; });
   });
-  $('start').addEventListener('click', function () { startLocal(false); });
-  $('watch').addEventListener('click', function () { startLocal(true); });
+  $('start').addEventListener('click', function () { startLocal(); });
   $('friend').addEventListener('click', function () { hide('menu'); $('onlineMsg').textContent = ''; show('online'); });
   $('onlineBack').addEventListener('click', function () { hide('online'); show('menu'); });
   $('find').addEventListener('click', function () { openNet({ t: 'find' }); });
@@ -327,11 +347,14 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     if (navigator.clipboard) navigator.clipboard.writeText(code).then(function () { $('copyCode').textContent = 'Copied'; });
   });
   $('toMenu').addEventListener('click', toMenu);
+  $('pauseBtn').addEventListener('click', function (e) { e.stopPropagation(); setPaused(!paused); });
+  $('resume').addEventListener('click', function () { setPaused(false); });
+  $('pauseMenu').addEventListener('click', toMenu);
   $('again').addEventListener('click', function () {
     if (mode === 'online' && net) {
       send({ t: 'rematch' });
       $('again').disabled = true; $('again').textContent = 'Waiting';
-    } else startLocal(watch);
+    } else startLocal();
   });
   function joinFromInput() {
     var code = $('codeIn').value.trim().toUpperCase();
@@ -510,7 +533,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
           $('resultMsg').textContent = net.endMsg.forfeit === myTeam ? 'You disconnected' : 'Opponent disconnected';
         }
       }
-      else { w = sim.winner; share = sim.share; tm = sim.t; st = sim.stats; title = w === -1 ? 'Draw' : (watch ? (w === 0 ? 'Black wins' : 'White wins') : (w === 0 ? 'You win' : 'Bot wins')); }
+      else { w = sim.winner; share = sim.share; tm = sim.t; st = sim.stats; title = w === -1 ? 'Draw' : (w === 0 ? 'You win' : 'Bot wins'); }
       $('resultStats').textContent = Math.round(share[0] * 100) + ' / ' + Math.round(share[1] * 100) + ' · ' + fmt(tm);
     }
     $('resultTitle').textContent = title;
@@ -571,7 +594,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     ctx.save();
     if (ui.shake > 0) { var m = ui.shake * 14; ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m); }
     // mirror the board so the player's own side is always on the right
-    var flip = (mode === 'online' && myTeam === 0) || (mode === 'local' && !watch);
+    var flip = (mode === 'online' && myTeam === 0) || mode === 'local';
     if (flip) { ctx.translate(2 * ox + COLS * cs, 0); ctx.scale(-1, 1); }
 
     ctx.fillStyle = C.ind; ctx.fillRect(bx(0), by(0), bx(COLS) - bx(0), by(ROWS) - by(0));
@@ -726,7 +749,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     var bw = COLS * cs - 54, bxs = ox + 54, bh = Math.max(9, cs * 0.5), byo = oy + ROWS * cs + 12;
     var online = mode === 'online', labels;
     if (online) labels = myTeam === 0 ? ['you', 'them'] : ['them', 'you'];
-    else if (mode === 'local' && !watch) labels = ['you', 'bot'];
+    else if (mode === 'local') labels = ['you', 'bot'];
     else labels = ['black', 'white'];
     ctx.font = '500 ' + Math.max(11, Math.round(cs * 0.5)) + 'px ' + FONT;
     ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
@@ -790,10 +813,12 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
         send({ t: 'input', y: Math.round(localTarget * 100) / 100, py: Math.round(localPadY * 100) / 100, vt: Math.round(view.t * 1000) / 1000 });
       }
       if (net && net.over && ui.endAt && now >= ui.endAt) { ui.endAt = 0; showEnd({}); }
+    } else if (sim && paused) {
+      acc = 0;
     } else if (sim) {
       acc += dt;
       while (acc >= STEP) {
-        if (mode === 'local' && !watch) {
+        if (mode === 'local') {
           var d2 = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);
           if (d2) sim.pad[0].target = Math.max(0, Math.min(ROWS, sim.pad[0].target + d2 * 28 * STEP));
         }
@@ -811,6 +836,8 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     }
     if (ui.shake > 0) ui.shake = Math.max(0, ui.shake - dt);
     phaseSounds(s);
+    var showPause = canPause() && !paused && !ui.endAt;
+    if (showPause !== ui.pauseShown) { ui.pauseShown = showPause; $('pauseBtn').classList.toggle('hidden', !showPause); }
     draw(now, s);
     requestAnimationFrame(frame);
   }
