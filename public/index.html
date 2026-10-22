@@ -592,7 +592,9 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
       ctx.fillStyle = 'rgba(255,255,255,' + (0.55 + 0.45 * frac).toFixed(2) + ')';
       ctx.font = '700 ' + Math.round(cs * 6) + 'px ' + FONT;
       ctx.textBaseline = 'middle';
+      ctx.globalCompositeOperation = 'difference';      // stays readable across the black and white halves
       ctx.fillText(String(Math.max(1, n)), ox + COLS * cs / 2, oy + ROWS * cs / 2);
+      ctx.globalCompositeOperation = 'source-over';
       if (online) {
         ctx.font = '700 ' + Math.round(cs * 0.8) + 'px ' + FONT;
         ctx.fillStyle = C.grey;
