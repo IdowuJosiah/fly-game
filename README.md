@@ -20,6 +20,7 @@ Settings:
 | `PORT` | 3000 | Port to listen on (hosting platforms set this for you) |
 | `GRACE_MS` | 5000 | How long the match pauses for a dropped player before they forfeit and the match ends |
 | `ROUND_TIME` | 120 | Round length in seconds, handy for quick tests |
+| `STATS_KEY` | (unset) | Password for the private stats page at `/stats?key=...` (add `&format=json` for JSON). The page answers 404 until this is set |
 
 ## Files
 
@@ -57,6 +58,10 @@ test/lagtest.js    Checks that no catch a player saw is lost to lag, and that th
 | server | `end {winner, share, tm, stats, forfeit}` | Match over. `forfeit` is the team that dropped out, or -1 |
 | server | `opp {status}` | Opponent `away`, `back`, `rematch`, or `left` |
 | server | `restart` / `error {msg}` | New match starting, or something went wrong |
+
+## Stats
+
+`/stats?key=<STATS_KEY>` shows who is on the site right now (in the menu, playing the bot, or online), matches in progress, players searching or waiting in rooms, and totals since the server started. Pages report themselves with a `POST /here` every 20 seconds while visible (a random id per tab and what it is doing, nothing else). Everything is kept in memory, so the totals reset on every restart or deploy; Cloudflare Web Analytics on the page keeps the long-term visitor history. On Fly, set the password with `fly secrets set STATS_KEY=...`.
 
 ## Deploying
 

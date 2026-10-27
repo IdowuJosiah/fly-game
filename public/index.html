@@ -178,6 +178,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     ui.fx = []; ui.banner = null; ui.endAt = 0; ui.shake = 0; ui.parts = []; ui.trails = {}; ui.lastPhase = '';
     mode = 'local';
     hideAllOverlays();
+    hello();
   }
   // only bot matches can pause; online the server keeps running
   function canPause() { return mode === 'local' && sim && !sim.over; }
@@ -191,6 +192,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     closeNet();
     hideAllOverlays(); show('menu');
     startDemo();
+    hello();
   }
 
   /* ---------- sound ---------- */
@@ -377,6 +379,7 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
   }
   function openNet(firstMsg) {
     closeNet();
+    setTimeout(hello, 0);
     $('onlineMsg').textContent = 'Connecting';
     net = { ws: null, first: firstMsg, code: '', token: '', team: 0, snaps: [], over: false, closing: false, retries: 0, viewSrc: null, lastSend: 0, endMsg: null, joined: false };
     connect();
@@ -905,6 +908,17 @@ input[type="text"]:focus-visible { outline: none; border-color: var(--fg); }
     else draw(now, s);
     requestAnimationFrame(frame);
   }
+
+  // Tell the server this page is open (for the private stats page): a random id per tab and what
+  // it is doing, every 20 s while visible. Nothing else is sent.
+  var pageId = Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 8);
+  function hello() {
+    if (document.hidden) return;
+    var m = mode === 'online' || net ? 'online' : (mode === 'local' ? 'bot' : 'menu');
+    try { fetch('/here?id=' + pageId + '&m=' + m, { method: 'POST', keepalive: true }).catch(function () {}); } catch (e) {}
+  }
+  hello(); setInterval(hello, 20000);
+  document.addEventListener('visibilitychange', hello);
 
   // open the page with #debug to let tests read what is on screen and how long drawing takes
   var debug = location.hash === '#debug' ? (window.__tp = { drawMs: [], view: function () { return mode === 'online' ? view : sim; }, buffer: function () { var c = net && net.clock; if (!c) return null; var m = Infinity; c.s.forEach(function (q) { m = Math.min(m, q[1]); }); return c.off - m; } }) : null;

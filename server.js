@@ -34,9 +34,82 @@ const FILES = {
   '/index.html': ['public/index.html', 'text/html; charset=utf-8'],
   '/sim.js': ['shared/sim.js', 'text/javascript; charset=utf-8']
 };
+/* ---------- stats ---------- */
+// Everything here lives in memory, so it resets when the server restarts or redeploys.
+const STATS_KEY = process.env.STATS_KEY || '';               // /stats is off until this is set
+const HERE_MS = 45000;                                      // a page that pinged within this long counts as on the site
+const counts = { startedAt: Date.now(), matches: 0, finished: 0, forfeits: 0, peakOnline: 0, peakOnSite: 0, visitors: 0 };
+const here = new Map();                                     // page id -> { at, mode }
+function onSite() {
+  const now = Date.now(), by = { menu: 0, bot: 0, online: 0 };
+  let n = 0;
+  for (const [id, h] of here) {
+    if (now - h.at > HERE_MS) { here.delete(id); continue; }
+    n++; if (by[h.mode] !== undefined) by[h.mode]++;
+  }
+  return { n, by };
+}
+function keyOk(given) {
+  if (!STATS_KEY) return false;
+  const a = Buffer.from(String(given || '')), b = Buffer.from(STATS_KEY);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+function statsNow() {
+  const site = onSite();
+  let playing = 0, inMatches = 0, searching = 0, inRooms = 0;
+  for (const room of rooms.values()) {
+    const n = room.players.filter((p) => p && p.connected).length;
+    if (room.state === 'playing') { playing++; inMatches += n; }
+    else if (room.state === 'lobby') { if (room.pub) searching += n; else inRooms += n; }
+  }
+  counts.peakOnSite = Math.max(counts.peakOnSite, site.n);
+  return {
+    onSite: site.n, onSiteBy: site.by, online: wss.clients.size,
+    matchesNow: playing, playersInMatches: inMatches, searching, waitingInRooms: inRooms,
+    sinceStart: { since: new Date(counts.startedAt).toISOString(), visitors: counts.visitors, matchesStarted: counts.matches,
+      matchesFinished: counts.finished, endedByDisconnect: counts.forfeits, peakOnSite: counts.peakOnSite, peakOnline: counts.peakOnline }
+  };
+}
+function statsPage(st) {
+  const row = (label, value) => `<tr><td>${label}</td><td>${value}</td></tr>`;
+  const ago = Math.round((Date.now() - counts.startedAt) / 60000);
+  const up = ago < 120 ? ago + ' min' : Math.round(ago / 60) + ' h';
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><meta http-equiv="refresh" content="5"><title>stats</title><style>
+body{margin:0;padding:24px 16px;background:#000;color:#fff;font:14px ui-monospace,Menlo,Consolas,monospace}
+h1{font-size:18px;margin:0 0 4px}p{color:#8a8a8a;margin:0 0 20px;font-size:12px}
+table{border-collapse:collapse;width:100%;max-width:360px;margin-bottom:24px}td{padding:6px 0;border-bottom:1px solid #222}
+td:last-child{text-align:right}.big{font-size:40px;font-weight:700;line-height:1}h2{font-size:12px;color:#8a8a8a;font-weight:400;margin:0 0 6px}
+</style></head><body><h1>territory paddle</h1><p>updates every 5 s</p>
+<div class="big">${st.onSite}</div><p>on the site now</p>
+<h2>right now</h2><table>
+${row('on the site', st.onSite)}${row('&nbsp;&nbsp;in the menu', st.onSiteBy.menu)}${row('&nbsp;&nbsp;playing the bot', st.onSiteBy.bot)}${row('&nbsp;&nbsp;online', st.onSiteBy.online)}
+${row('matches in progress', st.matchesNow)}${row('players in matches', st.playersInMatches)}${row('searching for an opponent', st.searching)}${row('waiting in a room', st.waitingInRooms)}
+</table><h2>since the server started (${up} ago)</h2><table>
+${row('visitors', st.sinceStart.visitors)}${row('online matches started', st.sinceStart.matchesStarted)}${row('online matches finished', st.sinceStart.matchesFinished)}
+${row('ended by a disconnect', st.sinceStart.endedByDisconnect)}${row('most on the site at once', st.sinceStart.peakOnSite)}${row('most connected at once', st.sinceStart.peakOnline)}
+</table></body></html>`;
+}
+
 const server = http.createServer((req, res) => {
-  const url = (req.url || '/').split('?')[0];
+  const full = new URL(req.url || '/', 'http://x'), url = full.pathname;
   if (url === '/health') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('ok'); return; }
+  if (url === '/here' && req.method === 'POST') {          // pages say they are open every 20 s
+    const id = full.searchParams.get('id') || '', mode = full.searchParams.get('m') || 'menu';
+    if (/^[a-z0-9]{8,32}$/.test(id) && (here.has(id) || here.size < 20000)) {
+      if (!here.has(id)) counts.visitors++;
+      here.set(id, { at: Date.now(), mode: ['menu', 'bot', 'online'].includes(mode) ? mode : 'menu' });
+      counts.peakOnSite = Math.max(counts.peakOnSite, onSite().n);
+    }
+    req.resume(); res.writeHead(204); res.end(); return;
+  }
+  if (url === '/stats') {
+    if (!keyOk(full.searchParams.get('key'))) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found'); return; }
+    const st = statsNow(), json = full.searchParams.get('format') === 'json';
+    res.writeHead(200, { 'Content-Type': json ? 'application/json' : 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(json ? JSON.stringify(st) : statsPage(st));
+    return;
+  }
   const f = FILES[url];
   if (!f) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found'); return; }
   fs.readFile(path.join(__dirname, f[0]), (err, buf) => {
@@ -109,6 +182,7 @@ class Room {
     this.sim = Sim.createSim(crypto.randomInt(0, 2 ** 32), [null, null]);
     this.sim.lagComp = [0, 1].map((k) => (t) => this.seenPaddle(k, t));
     this.state = 'playing';
+    counts.matches++;
     this.acc = 0; this.snapAcc = 0; this.evq = []; this.last = Date.now(); this.forfeit = -1; this.resumeAt = 0;
     for (const p of this.players) if (p) { p.rematch = false; p.seen = []; p.lastSeen = Date.now(); p.stale = false; }
     this.broadcast({ t: 'restart' });
@@ -187,6 +261,7 @@ class Room {
     if (s.over) {
       this.stopTimer();
       this.state = 'ended';
+      counts.finished++; if (this.forfeit >= 0) counts.forfeits++;
       this.broadcast(this.endMsg());
     }
   }
@@ -269,6 +344,7 @@ function joinRoom(ws, room) {
 }
 
 wss.on('connection', (ws) => {
+  counts.peakOnline = Math.max(counts.peakOnline, wss.clients.size);
   ws.meta = { room: null, team: -1, n: 0, windowStart: Date.now() };
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
